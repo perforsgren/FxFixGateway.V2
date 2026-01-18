@@ -1,0 +1,136 @@
+﻿<UserControl x:Class="FxFixGateway.UI.Views.SessionListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="400"
+             d:DataContext="{d:DesignInstance Type=vm:SessionListViewModel}">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Grid Grid.Row="0" Margin="16,16,16,8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0"
+                      Text="Sessions"
+                      Style="{StaticResource MaterialDesignHeadline5TextBlock}"/>
+
+            <Button Grid.Column="1"
+                   Command="{Binding AddSessionCommand}"
+                   Style="{StaticResource MaterialDesignFloatingActionMiniButton}"
+                   ToolTip="Add new session">
+                <materialDesign:PackIcon Kind="Plus" Width="20" Height="20"/>
+            </Button>
+        </Grid>
+
+        <!-- Filter Controls -->
+        <StackPanel Grid.Row="1" Margin="16,0,16,8">
+            <TextBox materialDesign:HintAssist.Hint="Filter sessions..."
+                    Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                    Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                    Margin="0,0,0,8"/>
+
+            <CheckBox Content="Show only enabled"
+                     IsChecked="{Binding ShowOnlyEnabled}"
+                     Margin="0,4"/>
+        </StackPanel>
+
+        <!-- Session List -->
+        <ListBox Grid.Row="2"
+                ItemsSource="{Binding Sessions}"
+                SelectedItem="{Binding SelectedSession}"
+                ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                BorderThickness="0">
+
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <Border Padding="12,8" 
+                           Margin="0,2"
+                           Background="Transparent"
+                           BorderThickness="0,0,0,1"
+                           BorderBrush="{DynamicResource MaterialDesignDivider}">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- Status Indicator -->
+                            <Ellipse Grid.Row="0" Grid.Column="0" 
+                                    Grid.RowSpan="2"
+                                    Width="12" Height="12"
+                                    Margin="0,0,12,0"
+                                    VerticalAlignment="Top">
+                                <Ellipse.Fill>
+                                    <SolidColorBrush Color="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"/>
+                                </Ellipse.Fill>
+                            </Ellipse>
+
+                            <!-- Session Key -->
+                            <TextBlock Grid.Row="0" Grid.Column="1"
+                                      Text="{Binding SessionKey}"
+                                      FontWeight="SemiBold"
+                                      FontSize="14"/>
+
+                            <!-- Status -->
+                            <TextBlock Grid.Row="0" Grid.Column="2"
+                                      Text="{Binding StatusText}"
+                                      FontSize="12"
+                                      Margin="8,0,0,0">
+                                <TextBlock.Foreground>
+                                    <SolidColorBrush Color="{Binding StatusColor, Converter={StaticResource StringToColorConverter}}"/>
+                                </TextBlock.Foreground>
+                            </TextBlock>
+
+                            <!-- Description -->
+                            <TextBlock Grid.Row="1" Grid.Column="1"
+                                      Grid.ColumnSpan="2"
+                                      Text="{Binding Description}"
+                                      FontSize="12"
+                                      Foreground="{DynamicResource MaterialDesignBodyLight}"
+                                      Margin="0,2,0,0"/>
+
+                            <!-- Last Heartbeat or Error -->
+                            <TextBlock Grid.Row="2" Grid.Column="1"
+                                      Grid.ColumnSpan="2"
+                                      FontSize="11"
+                                      Margin="0,4,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Text" Value="{Binding LastHeartbeat, StringFormat='HB: {0}'}"/>
+                                        <Setter Property="Foreground" Value="{DynamicResource MaterialDesignBodyLight}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding LastError, Converter={StaticResource NullToBooleanConverter}}" Value="True">
+                                                <Setter Property="Text" Value="{Binding LastError}"/>
+                                                <Setter Property="Foreground" Value="#F44336"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+    </Grid>
+</UserControl>

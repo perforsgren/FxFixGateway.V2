@@ -1,0 +1,266 @@
+﻿<UserControl x:Class="FxFixGateway.UI.Views.SessionDetailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:local="FxFixGateway.UI.Views"
+             xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
+             xmlns:converters="clr-namespace:FxFixGateway.UI.Converters"
+             mc:Ignorable="d" 
+             d:DataContext="{d:DesignInstance Type=vm:SessionDetailViewModel}"
+             d:DesignHeight="600" d:DesignWidth="800">
+
+    <UserControl.Resources>
+        <converters:InverseBooleanToVisibilityConverter x:Key="InverseBoolToVis"/>
+        <converters:StringToColorConverter x:Key="StringToColor"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header with action buttons -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" 
+                       Text="{Binding SelectedSession.SessionKey}" 
+                       FontSize="20" 
+                       FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+
+            <StackPanel Grid.Column="1" 
+                        Orientation="Horizontal" 
+                        HorizontalAlignment="Right">
+
+                <!-- View mode buttons -->
+                <Button Content="Edit" 
+                        Command="{Binding EditCommand}"
+                        Margin="0,0,8,0"
+                        Padding="16,8"
+                        Visibility="{Binding IsEditMode, Converter={StaticResource InverseBoolToVis}}"/>
+
+                <Button Content="Delete" 
+                        Command="{Binding DeleteCommand}"
+                        Margin="0,0,8,0"
+                        Padding="16,8"
+                        Visibility="{Binding IsEditMode, Converter={StaticResource InverseBoolToVis}}"/>
+
+                <!-- Edit mode buttons -->
+                <Button Content="Save" 
+                        Command="{Binding SaveCommand}"
+                        Margin="0,0,8,0"
+                        Padding="16,8"
+                        Visibility="{Binding IsEditMode, Converter={StaticResource BoolToVis}}"/>
+
+                <Button Content="Cancel" 
+                        Command="{Binding CancelEditCommand}"
+                        Padding="16,8"
+                        Visibility="{Binding IsEditMode, Converter={StaticResource BoolToVis}}"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- Tab Control -->
+        <TabControl Grid.Row="1">
+
+            <!-- Details Tab -->
+            <TabItem Header="Details">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <Grid Margin="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="200"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Session Key -->
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Session Key:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="0" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.SessionKey, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- Host - ska vara edieterbar i edit mode -->
+                        <TextBox Grid.Row="1" Grid.Column="1" 
+         Text="{Binding SelectedSession.Host, UpdateSourceTrigger=PropertyChanged}" 
+         IsEnabled="{Binding IsEditMode}"
+         Margin="0,8"/>
+
+                        <!-- Port - ska vara edieterbar i edit mode -->
+                        <TextBox Grid.Row="2" Grid.Column="1" 
+         Text="{Binding SelectedSession.Port, UpdateSourceTrigger=PropertyChanged}" 
+         IsEnabled="{Binding IsEditMode}"
+         Margin="0,8"/>
+
+
+                        <!-- SenderCompID -->
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Sender Comp ID:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="3" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.SenderCompID, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- TargetCompID -->
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Target Comp ID:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="4" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.TargetCompID, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- BeginString -->
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="FIX Version:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="5" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.BeginString, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- HeartbeatInterval -->
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Heartbeat (sec):" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="6" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.HeartbeatInterval, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- StartTime -->
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Start Time:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="7" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.StartTimeFormatted, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- EndTime -->
+                        <TextBlock Grid.Row="8" Grid.Column="0" Text="End Time:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="8" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.EndTimeFormatted, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- ReconnectInterval -->
+                        <TextBlock Grid.Row="9" Grid.Column="0" Text="Reconnect (sec):" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="9" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.ReconnectInterval, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- LogonTimeout -->
+                        <TextBlock Grid.Row="10" Grid.Column="0" Text="Logon Timeout (sec):" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="10" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.LogonTimeout, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- LogoutTimeout -->
+                        <TextBlock Grid.Row="11" Grid.Column="0" Text="Logout Timeout (sec):" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="11" Grid.Column="1" 
+                                 Text="{Binding SelectedSession.LogoutTimeout, UpdateSourceTrigger=PropertyChanged}" 
+                                 IsReadOnly="True"
+                                 Margin="0,8"/>
+
+                        <!-- IsEnabled -->
+                        <TextBlock Grid.Row="12" Grid.Column="0" Text="Enabled:" Margin="0,8" VerticalAlignment="Center"/>
+                        <CheckBox Grid.Row="12" Grid.Column="1" 
+                                  IsChecked="{Binding SelectedSession.IsEnabled}" 
+                                  IsEnabled="{Binding IsEditMode}"
+                                  Margin="0,8"/>
+
+                        <!-- ResetOnLogon -->
+                        <TextBlock Grid.Row="13" Grid.Column="0" Text="Reset on Logon:" Margin="0,8" VerticalAlignment="Center"/>
+                        <CheckBox Grid.Row="13" Grid.Column="1" 
+                                  IsChecked="{Binding SelectedSession.ResetOnLogon}" 
+                                  IsEnabled="{Binding IsEditMode}"
+                                  Margin="0,8"/>
+                    </Grid>
+                </ScrollViewer>
+            </TabItem>
+
+            <!-- Status Tab -->
+            <TabItem Header="Status">
+                <Grid Margin="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="200"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Status -->
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Status:" Margin="0,8" VerticalAlignment="Center"/>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Orientation="Horizontal" Margin="0,8">
+                        <Ellipse Width="12" Height="12" 
+                                 Fill="{Binding SelectedSession.StatusColor, Converter={StaticResource StringToColor}}" 
+                                 Margin="0,0,8,0"/>
+                        <TextBlock Text="{Binding SelectedSession.Status}" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- Last Logon -->
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Last Logon:" Margin="0,8" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="1" Grid.Column="1" 
+                               Text="{Binding SelectedSession.LastLogonFormatted}" 
+                               Margin="0,8"/>
+
+                    <!-- Last Logout -->
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Last Logout:" Margin="0,8" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="2" Grid.Column="1" 
+                               Text="{Binding SelectedSession.LastLogoutFormatted}" 
+                               Margin="0,8"/>
+
+                    <!-- Last Heartbeat -->
+                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Last Heartbeat:" Margin="0,8" VerticalAlignment="Center"/>
+                    <TextBlock Grid.Row="3" Grid.Column="1" 
+                               Text="{Binding SelectedSession.LastHeartbeatFormatted}" 
+                               Margin="0,8"/>
+
+                    <!-- Last Error -->
+                    <TextBlock Grid.Row="4" Grid.Column="0" Text="Last Error:" Margin="0,8" VerticalAlignment="Top"/>
+                    <TextBlock Grid.Row="4" Grid.Column="1" 
+                               Text="{Binding SelectedSession.LastError}" 
+                               TextWrapping="Wrap"
+                               Foreground="#F44336"
+                               Margin="0,8"/>
+                </Grid>
+            </TabItem>
+
+            <!-- Messages Tab -->
+            <TabItem Header="Messages">
+                <TextBlock Text="Message log will be displayed here" 
+                           Margin="16" 
+                           FontStyle="Italic" 
+                           Foreground="Gray"/>
+            </TabItem>
+
+            <!-- ACKs Tab -->
+            <TabItem Header="ACKs">
+                <TextBlock Text="Pending ACKs will be displayed here" 
+                           Margin="16" 
+                           FontStyle="Italic" 
+                           Foreground="Gray"/>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>
