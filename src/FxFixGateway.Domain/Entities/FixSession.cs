@@ -22,6 +22,8 @@ namespace FxFixGateway.Domain.Entities
 
         public IReadOnlyCollection<DomainEventBase> DomainEvents => _domainEvents.AsReadOnly();
 
+        //Test
+
         public FixSession(SessionConfiguration configuration)
         {
             Configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
