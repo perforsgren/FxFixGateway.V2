@@ -1,18 +1,19 @@
-﻿using System;
-using System.IO;
-using System.Windows;
-using FxFixGateway.Application.BackgroundServices;
+﻿using FxFixGateway.Application.BackgroundServices;
 using FxFixGateway.Application.Services;
 using FxFixGateway.Domain.Interfaces;
+using FxFixGateway.Infrastructure;
 using FxFixGateway.Infrastructure.Logging;
 using FxFixGateway.Infrastructure.Persistence;
+using FxFixGateway.Infrastructure.QuickFix;
 using FxFixGateway.UI.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using FxFixGateway.Infrastructure;
+using System;
+using System.IO;
+using System.Windows;
 
 namespace FxFixGateway.UI
 {
@@ -118,7 +119,18 @@ namespace FxFixGateway.UI
                 new AckQueueRepository(connectionString));
 
             // Infrastructure - FIX Engine
-            services.AddSingleton<IFixEngine, MockFixEngine>();
+            //services.AddSingleton<IFixEngine, MockFixEngine>();
+
+            // EFTER (KOMMENTERAD för testning):
+            // services.AddSingleton<IFixEngine, QuickFixEngine>();
+
+            // För att testa QuickFIX, byt till denna rad när du är redo:
+            services.AddSingleton<IFixEngine>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
+                var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                return new QuickFixEngine(logger, dataDictPath);
+            });
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
@@ -129,7 +141,7 @@ namespace FxFixGateway.UI
 
             // ViewModels
             services.AddTransient<SessionListViewModel>();
-            services.AddTransient<SessionDetailViewModel>();  // ← LÄGG TILL DENNA RAD
+            //services.AddTransient<SessionDetailViewModel>();  // ← LÄGG TILL DENNA RAD
             services.AddTransient<MainViewModel>();
 
             // Views
