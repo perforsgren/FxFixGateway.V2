@@ -17,6 +17,11 @@ namespace FxFixGateway.Domain.Interfaces
         Task<IEnumerable<PendingAck>> GetPendingAcksAsync(int maxCount = 100);
 
         /// <summary>
+        /// Hämtar ACKs för en specifik session med valfri status-filtrering.
+        /// </summary>
+        Task<IEnumerable<AckEntry>> GetAcksBySessionAsync(string sessionKey, AckStatus? statusFilter = null, int maxCount = 100);
+
+        /// <summary>
         /// Uppdaterar status för en ACK efter att den skickats.
         /// </summary>
         Task UpdateAckStatusAsync(long tradeId, AckStatus status, DateTime? sentUtc);
@@ -25,5 +30,10 @@ namespace FxFixGateway.Domain.Interfaces
         /// Räknar antal pending ACKs för en specifik session.
         /// </summary>
         Task<int> GetPendingCountAsync(string sessionKey);
+
+        /// <summary>
+        /// Hämtar statistik för ACKs (pending, sent today, failed).
+        /// </summary>
+        Task<AckStatistics> GetStatisticsAsync(string sessionKey);
     }
 }

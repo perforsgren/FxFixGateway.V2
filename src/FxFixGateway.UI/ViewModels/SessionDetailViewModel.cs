@@ -22,9 +22,14 @@ namespace FxFixGateway.UI.ViewModels
         [ObservableProperty]
         private MessageLogViewModel? _messageLog;
 
+        [ObservableProperty]
+        private AckQueueViewModel? _ackQueue;
+
         public SessionDetailViewModel(
             SessionManagementService sessionManagementService,
-            IMessageLogger? messageLogger = null)
+            IMessageLogger? messageLogger = null,
+            IAckQueueRepository? ackQueueRepository = null,
+            IFixEngine? fixEngine = null)
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
             
@@ -32,6 +37,12 @@ namespace FxFixGateway.UI.ViewModels
             if (messageLogger != null)
             {
                 _messageLog = new MessageLogViewModel(messageLogger);
+            }
+
+            // Skapa AckQueueViewModel om repositories finns
+            if (ackQueueRepository != null && fixEngine != null)
+            {
+                _ackQueue = new AckQueueViewModel(ackQueueRepository, fixEngine);
             }
         }
 
@@ -53,9 +64,17 @@ namespace FxFixGateway.UI.ViewModels
             OnPropertyChanged(nameof(CanRestart));
 
             // Load messages for the selected session
-            if (value != null && MessageLog != null)
+            if (value != null)
             {
-                _ = MessageLog.LoadMessagesAsync(value.SessionKey);
+                if (MessageLog != null)
+                {
+                    _ = MessageLog.LoadMessagesAsync(value.SessionKey);
+                }
+
+                if (AckQueue != null)
+                {
+                    _ = AckQueue.LoadAcksAsync(value.SessionKey);
+                }
             }
         }
 
@@ -120,7 +139,7 @@ namespace FxFixGateway.UI.ViewModels
         [RelayCommand]
         private void Edit()
         {
-            if (!CanStart) // Can only edit when stopped
+            if (!CanStart)
             {
                 MessageBox.Show("Stop the session before editing.", "Cannot Edit", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
@@ -150,7 +169,6 @@ namespace FxFixGateway.UI.ViewModels
         private void CancelEdit()
         {
             IsEditMode = false;
-            // TODO: Reload original values
         }
 
         [RelayCommand]
@@ -158,15 +176,15 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (SelectedSession == null) return;
 
-            if (!CanStart) // Can only delete when stopped
+            if (!CanStart)
             {
                 MessageBox.Show("Stop the session before deleting.", "Cannot Delete", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
             var result = MessageBox.Show(
-                $"Är du säker på att du vill ta bort sessionen '{SelectedSession.SessionKey}'?",
-                "Bekräfta borttagning",
+                $"Are you sure you want to delete session '{SelectedSession.SessionKey}'?",
+                "Confirm Delete",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
 
@@ -175,11 +193,11 @@ namespace FxFixGateway.UI.ViewModels
                 try
                 {
                     await _sessionManagementService.DeleteSessionAsync(SelectedSession.SessionKey);
-                    MessageBox.Show("Sessionen har raderats", "Framgång", MessageBoxButton.OK, MessageBoxImage.Information);
+                    MessageBox.Show("Session deleted successfully", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Misslyckades med att radera session: {ex.Message}", "Fel", MessageBoxButton.OK, MessageBoxImage.Error);
+                    MessageBox.Show($"Failed to delete session: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
         }

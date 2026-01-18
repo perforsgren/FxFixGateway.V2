@@ -33,14 +33,20 @@ namespace FxFixGateway.UI.ViewModels
             SessionManagementService sessionManagementService,
             SessionListViewModel sessionListViewModel,
             IMessageLogger messageLogger,
+            IAckQueueRepository ackQueueRepository,
+            IFixEngine fixEngine,
             ILogger<MainViewModel> logger)
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
             _sessionList = sessionListViewModel ?? throw new ArgumentNullException(nameof(sessionListViewModel));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            // Skapa SessionDetailViewModel med messageLogger
-            _sessionDetail = new SessionDetailViewModel(_sessionManagementService, messageLogger);
+            // Skapa SessionDetailViewModel med alla dependencies
+            _sessionDetail = new SessionDetailViewModel(
+                _sessionManagementService, 
+                messageLogger, 
+                ackQueueRepository, 
+                fixEngine);
 
             // Lyssna på session selection
             _sessionList.PropertyChanged += SessionListOnPropertyChanged;
@@ -92,7 +98,6 @@ namespace FxFixGateway.UI.ViewModels
 
         private void OnSessionSelected(SessionViewModel? session)
         {
-            // SessionDetail finns alltid nu, bara uppdatera SelectedSession
             SessionDetail.SelectedSession = session;
         }
 

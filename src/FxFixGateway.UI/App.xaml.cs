@@ -16,9 +16,6 @@ using FxFixGateway.Infrastructure;
 
 namespace FxFixGateway.UI
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : System.Windows.Application
     {
         private IHost? _host;
@@ -27,12 +24,10 @@ namespace FxFixGateway.UI
         {
             base.OnStartup(e);
 
-            // Konfigurera Serilog först
             SerilogConfiguration.Configure();
 
             try
             {
-                // Bygg Host med Dependency Injection
                 _host = Host.CreateDefaultBuilder()
                     .ConfigureAppConfiguration((context, config) =>
                     {
@@ -46,22 +41,16 @@ namespace FxFixGateway.UI
                     .UseSerilog()
                     .Build();
 
-                // Starta Host
                 _host.Start();
 
-                // Skapa och visa MainWindow
                 var mainWindow = _host.Services.GetRequiredService<MainWindow>();
                 mainWindow.Show();
             }
             catch (Exception ex)
             {
-                // Logga ALLT till fil och console
                 Log.Fatal(ex, "APPLICATION STARTUP FAILED");
                 
-                // Bygg fullständigt felmeddelande med alla inner exceptions
                 var fullError = GetFullExceptionDetails(ex);
-                
-                // Skriv till fil också (ifall Serilog inte hunnit konfigurera)
                 var errorLogPath = Path.Combine(Directory.GetCurrentDirectory(), "startup_error.txt");
                 File.WriteAllText(errorLogPath, fullError);
 
@@ -111,11 +100,9 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            // Configuration
             var connectionString = configuration.GetConnectionString("GatewayDb")
                 ?? "Server=localhost;Database=fix_config_dev;User=root;Password=yourpassword;";
 
-            // LOGGA connection string (utan lösenord)
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
             Log.Information("Using connection string: {ConnectionString}", safeConnStr);
@@ -148,12 +135,16 @@ namespace FxFixGateway.UI
                 var sessionManagementService = sp.GetRequiredService<SessionManagementService>();
                 var sessionListViewModel = sp.GetRequiredService<SessionListViewModel>();
                 var messageLogger = sp.GetRequiredService<IMessageLogger>();
+                var ackQueueRepository = sp.GetRequiredService<IAckQueueRepository>();
+                var fixEngine = sp.GetRequiredService<IFixEngine>();
                 var logger = sp.GetRequiredService<ILogger<MainViewModel>>();
                 
                 return new MainViewModel(
                     sessionManagementService,
                     sessionListViewModel,
                     messageLogger,
+                    ackQueueRepository,
+                    fixEngine,
                     logger);
             });
 
