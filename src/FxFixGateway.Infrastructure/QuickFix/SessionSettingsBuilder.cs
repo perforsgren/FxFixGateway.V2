@@ -2,11 +2,16 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using FxFixGateway.Domain.ValueObjects;
 using QuickFix;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
+    /// <summary>
+    /// Bygger QuickFIX SessionSettings dynamiskt från SessionConfiguration.
+    /// Skapar en temporär .cfg fil och läser den.
+    /// </summary>
     public class SessionSettingsBuilder
     {
         private readonly string _fileStorePath;
@@ -22,10 +27,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _fileLogPath = fileLogPath ?? Path.Combine(Directory.GetCurrentDirectory(), "log");
             _dataDictionaryPath = dataDictionaryPath;
 
+            // Skapa directories om de inte finns
             Directory.CreateDirectory(_fileStorePath);
             Directory.CreateDirectory(_fileLogPath);
         }
 
+        /// <summary>
+        /// Bygger QuickFIX SessionSettings från flera SessionConfiguration.
+        /// </summary>
         public SessionSettings Build(IEnumerable<SessionConfiguration> configurations)
         {
             if (configurations == null)
@@ -35,68 +44,86 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (configList.Count == 0)
                 throw new ArgumentException("At least one SessionConfiguration is required.");
 
-            var settings = new SessionSettings();
+            // Bygg config-fil innehåll
+            var configContent = BuildConfigFileContent(configList);
+
+            // Skapa temporär fil
+            var tempConfigFile = Path.Combine(Path.GetTempPath(), $"quickfix_{Guid.NewGuid():N}.cfg");
+
+            try
+            {
+                File.WriteAllText(tempConfigFile, configContent);
+                var settings = new SessionSettings(tempConfigFile);
+                return settings;
+            }
+            finally
+            {
+                // Cleanup temp file
+                if (File.Exists(tempConfigFile))
+                {
+                    try { File.Delete(tempConfigFile); } catch { /* Ignore */ }
+                }
+            }
+        }
+
+        private string BuildConfigFileContent(List<SessionConfiguration> configurations)
+        {
+            var sb = new StringBuilder();
 
             // [DEFAULT] section
-            var defaultDict = new QuickFix.Dictionary();  // ← FIX: QuickFix.Dictionary, inte Dictionary<,>
-            defaultDict.SetString("ConnectionType", "initiator");
-            defaultDict.SetString("ReconnectInterval", "30");
-            defaultDict.SetString("FileStorePath", _fileStorePath);
-            defaultDict.SetString("FileLogPath", _fileLogPath);
-            defaultDict.SetString("StartTime", "00:00:00");
-            defaultDict.SetString("EndTime", "00:00:00");
-            defaultDict.SetString("UseDataDictionary", "Y");
-            defaultDict.SetString("ValidateUserDefinedFields", "N");
-            defaultDict.SetString("ValidateFieldsOutOfOrder", "N");
-            defaultDict.SetString("ValidateFieldsHaveValues", "N");
-            defaultDict.SetString("ValidateUnorderedGroupFields", "N");
-            defaultDict.SetString("CheckLatency", "N");
+            sb.AppendLine("[DEFAULT]");
+            sb.AppendLine("ConnectionType=initiator");
+            sb.AppendLine("ReconnectInterval=30");
+            sb.AppendLine($"FileStorePath={_fileStorePath}");
+            sb.AppendLine($"FileLogPath={_fileLogPath}");
+            sb.AppendLine("StartTime=00:00:00");
+            sb.AppendLine("EndTime=00:00:00");
+            sb.AppendLine("UseDataDictionary=Y");
+            sb.AppendLine("ValidateUserDefinedFields=N");
+            sb.AppendLine("ValidateFieldsOutOfOrder=N");
+            sb.AppendLine("ValidateFieldsHaveValues=N");
+            sb.AppendLine("ValidateUnorderedGroupFields=N");
+            sb.AppendLine("CheckLatency=N");
 
             if (!string.IsNullOrEmpty(_dataDictionaryPath) && File.Exists(_dataDictionaryPath))
             {
-                defaultDict.SetString("DataDictionary", _dataDictionaryPath);
+                sb.AppendLine($"DataDictionary={_dataDictionaryPath}");
             }
 
-            settings.Set(defaultDict);
+            sb.AppendLine();
 
-            // [SESSION] sections
-            foreach (var config in configList)
+            // [SESSION] sections - en per konfiguration
+            foreach (var config in configurations)
             {
-                var sessionId = new SessionID(
-                    config.FixVersion,
-                    config.SenderCompId,
-                    config.TargetCompId);
-
-                var sessionDict = new QuickFix.Dictionary();  // ← FIX: QuickFix.Dictionary
-
-                sessionDict.SetString("SocketConnectHost", config.Host);
-                sessionDict.SetLong("SocketConnectPort", config.Port);
-                sessionDict.SetString("BeginString", config.FixVersion);
-                sessionDict.SetString("SenderCompID", config.SenderCompId);
-                sessionDict.SetString("TargetCompID", config.TargetCompId);
-                sessionDict.SetLong("HeartBtInt", config.HeartBtIntSec);
-                sessionDict.SetLong("ReconnectInterval", config.ReconnectIntervalSeconds);
+                sb.AppendLine("[SESSION]");
+                sb.AppendLine($"BeginString={config.FixVersion}");
+                sb.AppendLine($"SenderCompID={config.SenderCompId}");
+                sb.AppendLine($"TargetCompID={config.TargetCompId}");
+                sb.AppendLine($"SocketConnectHost={config.Host}");
+                sb.AppendLine($"SocketConnectPort={config.Port}");
+                sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");
+                sb.AppendLine($"ReconnectInterval={config.ReconnectIntervalSeconds}");
 
                 if (config.StartTime != TimeSpan.Zero || config.EndTime != TimeSpan.Zero)
                 {
-                    sessionDict.SetString("StartTime", config.StartTime.ToString(@"hh\:mm\:ss"));
-                    sessionDict.SetString("EndTime", config.EndTime.ToString(@"hh\:mm\:ss"));
+                    sb.AppendLine($"StartTime={config.StartTime:hh\\:mm\\:ss}");
+                    sb.AppendLine($"EndTime={config.EndTime:hh\\:mm\\:ss}");
                 }
 
                 if (!string.IsNullOrEmpty(config.LogonUsername))
                 {
-                    sessionDict.SetString("Username", config.LogonUsername);
+                    sb.AppendLine($"Username={config.LogonUsername}");
 
                     if (!string.IsNullOrEmpty(config.Password))
                     {
-                        sessionDict.SetString("Password", config.Password);
+                        sb.AppendLine($"Password={config.Password}");
                     }
                 }
 
-                settings.Set(sessionId, sessionDict);
+                sb.AppendLine();
             }
 
-            return settings;
+            return sb.ToString();
         }
     }
 }

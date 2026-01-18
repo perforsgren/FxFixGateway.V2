@@ -2,10 +2,7 @@
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
-using QuickFix;
-using QuickFix.Logger;
-using QuickFix.Store;
-using QuickFix.Transport;
+using QF = global::QuickFix;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -19,11 +16,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private readonly ILogger<QuickFixEngine>? _logger;
         private readonly string _dataDictionaryPath;
 
-        private SocketInitiator? _initiator;
+        private QF.Transport.SocketInitiator? _initiator;
         private QuickFixApplication? _application;
-        private SessionSettings? _settings;
-        private Dictionary<SessionID, string>? _sessionKeyMap;
-        private Dictionary<string, SessionID>? _sessionIdMap;
+        private QF.SessionSettings? _settings;
+        private Dictionary<QF.SessionID, string>? _sessionKeyMap;
+        private Dictionary<string, QF.SessionID>? _sessionIdMap;
 
         private bool _initialized;
         private bool _running;
@@ -54,12 +51,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
             _settings = builder.Build(configList);
 
-            _sessionKeyMap = new Dictionary<SessionID, string>();
-            _sessionIdMap = new Dictionary<string, SessionID>();
+            _sessionKeyMap = new Dictionary<QF.SessionID, string>();
+            _sessionIdMap = new Dictionary<string, QF.SessionID>();
 
             foreach (var config in configList)
             {
-                var sessionId = new SessionID(
+                var sessionId = new QF.SessionID(
                     config.FixVersion,
                     config.SenderCompId,
                     config.TargetCompId);
@@ -78,11 +75,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _application.HeartbeatReceived += OnHeartbeatReceived;
             _application.ErrorOccurred += OnErrorOccurred;
 
-            var storeFactory = new FileStoreFactory(_settings);  // ← FIX: Finns i QuickFix.Transport
-            var logFactory = new FileLogFactory(_settings);      // ← FIX: Finns i QuickFix.Transport
-            var messageFactory = new DefaultMessageFactory();
+            var storeFactory = new QF.Store.FileStoreFactory(_settings);
+            var logFactory = new QF.Logger.FileLogFactory(_settings);
+            var messageFactory = new QF.DefaultMessageFactory();
 
-            _initiator = new SocketInitiator(
+            _initiator = new QF.Transport.SocketInitiator(
                 _application,
                 storeFactory,
                 _settings,
@@ -123,7 +120,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 Domain.Enums.SessionStatus.Stopped,
                 Domain.Enums.SessionStatus.Starting));
 
-            var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
+            var session = QF.Session.LookupSession(sessionId);
             if (session != null)
             {
                 session.Logon();
@@ -155,7 +152,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 Domain.Enums.SessionStatus.LoggedOn,
                 Domain.Enums.SessionStatus.Disconnecting));
 
-            var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
+            var session = QF.Session.LookupSession(sessionId);
             if (session != null)
             {
                 session.Logout("User requested logout");
@@ -189,10 +186,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             try
             {
-                var message = new QuickFix.Message();  // ← FIX: QuickFix.Message
+                var message = new QF.Message();
                 message.FromString(rawFixMessage, false, null, null, null);
 
-                var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
+                var session = QF.Session.LookupSession(sessionId);
                 if (session != null)
                 {
                     session.Send(message);

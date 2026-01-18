@@ -2,13 +2,13 @@
 using System.Collections.Generic;
 using FxFixGateway.Domain.Enums;
 using FxFixGateway.Domain.Events;
-using QuickFix;
+using QF = global::QuickFix;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
-    public class QuickFixApplication : IApplication
+    public class QuickFixApplication : QF.IApplication
     {
-        private readonly Dictionary<SessionID, string> _sessionKeyMap;
+        private readonly Dictionary<QF.SessionID, string> _sessionKeyMap;
 
         public event EventHandler<SessionStatusChangedEvent>? StatusChanged;
         public event EventHandler<MessageReceivedEvent>? MessageReceived;
@@ -16,17 +16,17 @@ namespace FxFixGateway.Infrastructure.QuickFix
         public event EventHandler<HeartbeatReceivedEvent>? HeartbeatReceived;
         public event EventHandler<ErrorOccurredEvent>? ErrorOccurred;
 
-        public QuickFixApplication(Dictionary<SessionID, string> sessionKeyMap)
+        public QuickFixApplication(Dictionary<QF.SessionID, string> sessionKeyMap)
         {
             _sessionKeyMap = sessionKeyMap ?? throw new ArgumentNullException(nameof(sessionKeyMap));
         }
 
-        public void OnCreate(SessionID sessionId)
+        public void OnCreate(QF.SessionID sessionId)
         {
             // Session created
         }
 
-        public void OnLogon(SessionID sessionId)
+        public void OnLogon(QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
@@ -37,7 +37,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 SessionStatus.LoggedOn));
         }
 
-        public void OnLogout(SessionID sessionId)
+        public void OnLogout(QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
@@ -48,7 +48,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 SessionStatus.Disconnecting));
         }
 
-        public void ToAdmin(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
+        public void ToAdmin(QF.Message message, QF.SessionID sessionId)
         {
             var msgType = GetMessageType(message);
 
@@ -64,7 +64,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
         }
 
-        public void ToApp(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
+        public void ToApp(QF.Message message, QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
@@ -79,12 +79,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 DateTime.UtcNow));
         }
 
-        public void FromAdmin(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
+        public void FromAdmin(QF.Message message, QF.SessionID sessionId)
         {
             // Admin messages received
         }
 
-        public void FromApp(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
+        public void FromApp(QF.Message message, QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
@@ -99,19 +99,19 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 DateTime.UtcNow));
         }
 
-        private string? GetSessionKey(SessionID sessionId)
+        private string? GetSessionKey(QF.SessionID sessionId)
         {
             return _sessionKeyMap.TryGetValue(sessionId, out var key) ? key : null;
         }
 
-        private string GetMessageType(QuickFix.Message message)  // ← FIX: QuickFix.Message
+        private string GetMessageType(QF.Message message)
         {
             try
             {
                 var header = message.Header;
-                if (header.IsSetField(QuickFix.Fields.Tags.MsgType))  // ← FIX: QuickFix.Fields.Tags
+                if (header.IsSetField(QF.Fields.Tags.MsgType))
                 {
-                    return header.GetString(QuickFix.Fields.Tags.MsgType);  // ← FIX: QuickFix.Fields.Tags
+                    return header.GetString(QF.Fields.Tags.MsgType);
                 }
             }
             catch
