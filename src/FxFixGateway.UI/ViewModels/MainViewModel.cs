@@ -80,12 +80,19 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (session == null)
             {
-                SessionDetail = null;
+                if (SessionDetail != null)
+                {
+                    SessionDetail.SelectedSession = null;
+                }
                 return;
             }
 
-            // Skapa eller uppdatera SessionDetailViewModel
-            SessionDetail = new SessionDetailViewModel(session, _sessionManagementService, _logger);
+            // Skapa SessionDetailViewModel om det inte finns, annars uppdatera SelectedSession
+            if (SessionDetail == null)
+            {
+                SessionDetail = new SessionDetailViewModel(_sessionManagementService);
+            }
+            SessionDetail.SelectedSession = session;
         }
 
         [RelayCommand]

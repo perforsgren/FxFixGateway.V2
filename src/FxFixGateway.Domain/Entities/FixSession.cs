@@ -35,9 +35,10 @@ namespace FxFixGateway.Domain.Entities
                 throw new InvalidOperationException($"Cannot start session in {Status} status");
             }
 
+            var oldStatus = Status;
             Status = SessionStatus.Starting;
             LastError = null;
-            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, Status, DateTime.UtcNow));
+            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, oldStatus, Status));
         }
 
         public void Stop()
@@ -47,31 +48,35 @@ namespace FxFixGateway.Domain.Entities
                 throw new InvalidOperationException("Session is already stopped");
             }
 
+            var oldStatus = Status;
             Status = SessionStatus.Disconnecting;
-            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, Status, DateTime.UtcNow));
+            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, oldStatus, Status));
         }
 
         public void MarkAsLoggedOn()
         {
+            var oldStatus = Status;
             Status = SessionStatus.LoggedOn;
             LastLogonTime = DateTime.UtcNow;
             LastError = null;
-            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, Status, DateTime.UtcNow));
+            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, oldStatus, Status));
         }
 
         public void MarkAsDisconnected()
         {
+            var oldStatus = Status;
             Status = SessionStatus.Stopped;
             LastLogoutTime = DateTime.UtcNow;
-            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, Status, DateTime.UtcNow));
+            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, oldStatus, Status));
         }
 
         public void MarkAsError(string errorMessage)
         {
+            var oldStatus = Status;
             Status = SessionStatus.Error;
             LastError = errorMessage;
-            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, Status, DateTime.UtcNow));
-            RaiseDomainEvent(new ErrorOccurredEvent(Configuration.SessionKey, errorMessage, DateTime.UtcNow));
+            RaiseDomainEvent(new SessionStatusChangedEvent(Configuration.SessionKey, oldStatus, Status));
+            RaiseDomainEvent(new ErrorOccurredEvent(Configuration.SessionKey, errorMessage));
         }
 
         public void RecordHeartbeat()

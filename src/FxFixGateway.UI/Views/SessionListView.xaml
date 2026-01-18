@@ -5,9 +5,16 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
              xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
              xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
-             mc:Ignorable="d" 
+             xmlns:converters="clr-namespace:FxFixGateway.UI.Converters"
+             mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="400"
              d:DataContext="{d:DesignInstance Type=vm:SessionListViewModel}">
+
+    <UserControl.Resources>
+        <converters:StringToColorConverter x:Key="StringToColorConverter"/>
+        <converters:NullToBooleanConverter x:Key="NullToBooleanConverter"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>

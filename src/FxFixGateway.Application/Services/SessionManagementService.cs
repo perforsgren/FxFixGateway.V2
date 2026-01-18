@@ -154,22 +154,22 @@ namespace FxFixGateway.Application.Services
             }
         }
 
-        private void OnFixEngineStatusChanged(object sender, (string SessionKey, SessionStatus Status) e)
+        private void OnFixEngineStatusChanged(object sender, Domain.Events.SessionStatusChangedEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
-                if (e.Status == SessionStatus.LoggedOn)
+                if (e.NewStatus == SessionStatus.LoggedOn)
                 {
                     session.MarkAsLoggedOn();
                 }
-                else if (e.Status == SessionStatus.Stopped)
+                else if (e.NewStatus == SessionStatus.Stopped)
                 {
                     session.MarkAsDisconnected();
                 }
             }
         }
 
-        private void OnFixEngineHeartbeatReceived(object sender, (string SessionKey, DateTime Timestamp) e)
+        private void OnFixEngineHeartbeatReceived(object sender, Domain.Events.HeartbeatReceivedEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
@@ -177,11 +177,11 @@ namespace FxFixGateway.Application.Services
             }
         }
 
-        private void OnFixEngineErrorOccurred(object sender, (string SessionKey, string Message) e)
+        private void OnFixEngineErrorOccurred(object sender, Domain.Events.ErrorOccurredEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
-                session.MarkAsError(e.Message);
+                session.MarkAsError(e.ErrorMessage);
             }
         }
     }

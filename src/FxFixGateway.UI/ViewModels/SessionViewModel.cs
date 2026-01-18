@@ -44,12 +44,19 @@ namespace FxFixGateway.UI.ViewModels
 
         // Status Properties
         public SessionStatus Status => _session.Status;
+        public string StatusText => Status.ToString();
         public bool IsEnabled => _session.Configuration.IsEnabled;
         public string LastError => _session.LastError ?? "None";
 
         public string LastLogonFormatted => _session.LastLogonTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
         public string LastLogoutFormatted => _session.LastLogoutTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
         public string LastHeartbeatFormatted => _session.LastHeartbeatTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
+        public string LastHeartbeat => _session.LastHeartbeatTime?.ToString("HH:mm:ss") ?? "Never";
+
+        // Timeout Properties (not in domain, using default values)
+        public int LogonTimeout => 30;
+        public int LogoutTimeout => 5;
+        public bool ResetOnLogon => false;
 
         // Computed Properties
         public string StatusColor => Status switch

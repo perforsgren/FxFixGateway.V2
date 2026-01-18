@@ -96,23 +96,24 @@
 
                         <!-- Session Key -->
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Session Key:" Margin="0,8" VerticalAlignment="Center"/>
-                        <TextBox Grid.Row="0" Grid.Column="1" 
-                                 Text="{Binding SelectedSession.SessionKey, UpdateSourceTrigger=PropertyChanged}" 
+                        <TextBox Grid.Row="0" Grid.Column="1"
+                                 Text="{Binding SelectedSession.SessionKey, UpdateSourceTrigger=PropertyChanged}"
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
                         <!-- Host - ska vara edieterbar i edit mode -->
-                        <TextBox Grid.Row="1" Grid.Column="1" 
-         Text="{Binding SelectedSession.Host, UpdateSourceTrigger=PropertyChanged}" 
-         IsEnabled="{Binding IsEditMode}"
-         Margin="0,8"/>
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Host:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="1" Grid.Column="1"
+                                 Text="{Binding SelectedSession.Host, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding IsEditMode}"
+                                 Margin="0,8"/>
 
                         <!-- Port - ska vara edieterbar i edit mode -->
-                        <TextBox Grid.Row="2" Grid.Column="1" 
-         Text="{Binding SelectedSession.Port, UpdateSourceTrigger=PropertyChanged}" 
-         IsEnabled="{Binding IsEditMode}"
-         Margin="0,8"/>
-
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Port:" Margin="0,8" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="2" Grid.Column="1"
+                                 Text="{Binding SelectedSession.Port, UpdateSourceTrigger=PropertyChanged}"
+                                 IsEnabled="{Binding IsEditMode}"
+                                 Margin="0,8"/>
 
                         <!-- SenderCompID -->
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Sender Comp ID:" Margin="0,8" VerticalAlignment="Center"/>
