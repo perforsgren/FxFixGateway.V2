@@ -1,7 +1,6 @@
 ﻿using FxFixGateway.Application.BackgroundServices;
 using FxFixGateway.Application.Services;
 using FxFixGateway.Domain.Interfaces;
-using FxFixGateway.Infrastructure;
 using FxFixGateway.Infrastructure.Logging;
 using FxFixGateway.Infrastructure.Persistence;
 using FxFixGateway.Infrastructure.QuickFix;
@@ -13,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using Serilog;
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace FxFixGateway.UI
@@ -26,6 +26,11 @@ namespace FxFixGateway.UI
             base.OnStartup(e);
 
             SerilogConfiguration.Configure();
+
+#if DEBUG
+            // Suppress WPF binding errors in debug output (MaterialDesign HintAssist issue)
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level = System.Diagnostics.SourceLevels.Critical;
+#endif
 
             try
             {
@@ -43,6 +48,9 @@ namespace FxFixGateway.UI
                     .Build();
 
                 _host.Start();
+
+                // Ensure MessageProcessingService is instantiated to register event handlers
+                _ = _host.Services.GetRequiredService<MessageProcessingService>();
 
                 var mainWindow = _host.Services.GetRequiredService<MainWindow>();
                 mainWindow.Show();
@@ -89,9 +97,27 @@ namespace FxFixGateway.UI
             return sb.ToString();
         }
 
-        protected override void OnExit(ExitEventArgs e)
+        protected override async void OnExit(ExitEventArgs e)
         {
             Log.Information("Application shutting down...");
+
+            try
+            {
+                if (_host != null)
+                {
+                    var fixEngine = _host.Services.GetService<IFixEngine>();
+                    if (fixEngine != null)
+                    {
+                        Log.Information("Shutting down FIX engine gracefully...");
+                        await fixEngine.ShutdownAsync();
+                        await Task.Delay(1000); // Give QuickFIX time to send logout messages
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error during graceful shutdown");
+            }
 
             _host?.Dispose();
             SerilogConfiguration.Close();
@@ -119,12 +145,6 @@ namespace FxFixGateway.UI
                 new AckQueueRepository(connectionString));
 
             // Infrastructure - FIX Engine
-            //services.AddSingleton<IFixEngine, MockFixEngine>();
-
-            // EFTER (KOMMENTERAD för testning):
-            // services.AddSingleton<IFixEngine, QuickFixEngine>();
-
-            // För att testa QuickFIX, byt till denna rad när du är redo:
             services.AddSingleton<IFixEngine>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
@@ -134,14 +154,21 @@ namespace FxFixGateway.UI
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
-            services.AddSingleton<MessageProcessingService>();
+            
+            // MessageProcessingService - needs IFixEngine injected
+            services.AddSingleton<MessageProcessingService>(sp =>
+            {
+                var fixEngine = sp.GetRequiredService<IFixEngine>();
+                var messageLogger = sp.GetRequiredService<IMessageLogger>();
+                var logger = sp.GetRequiredService<ILogger<MessageProcessingService>>();
+                return new MessageProcessingService(fixEngine, messageLogger, logger);
+            });
 
             // Background Services
             services.AddHostedService<AckPollingService>();
 
             // ViewModels
             services.AddTransient<SessionListViewModel>();
-            //services.AddTransient<SessionDetailViewModel>();  // ← LÄGG TILL DENNA RAD
             services.AddTransient<MainViewModel>();
 
             // Views

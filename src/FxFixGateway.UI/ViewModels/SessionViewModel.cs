@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Enums;
@@ -10,6 +11,7 @@ namespace FxFixGateway.UI.ViewModels
     {
         private readonly FixSession _session;
         private readonly IFixEngine _fixEngine;
+        private bool _disposed;
 
         public SessionViewModel(FixSession session, IFixEngine fixEngine)
         {
@@ -24,30 +26,51 @@ namespace FxFixGateway.UI.ViewModels
 
         private void OnFixEngineStatusChanged(object? sender, Domain.Events.SessionStatusChangedEvent e)
         {
-            // Uppdatera bara om det är vår session
-            if (e.SessionKey != SessionKey) return;
+            if (e.SessionKey != SessionKey || _disposed) return;
 
-            // Notify UI om status properties
-            OnPropertyChanged(nameof(Status));
-            OnPropertyChanged(nameof(StatusText));
-            OnPropertyChanged(nameof(StatusColor));
-            OnPropertyChanged(nameof(CanStart));
-            OnPropertyChanged(nameof(CanStop));
+            // Marshal till UI-tråden using BeginInvoke (async) instead of Invoke (sync)
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                OnPropertyChanged(nameof(Status));
+                OnPropertyChanged(nameof(StatusText));
+                OnPropertyChanged(nameof(StatusColor));
+                OnPropertyChanged(nameof(CanStart));
+                OnPropertyChanged(nameof(CanStop));
+                
+                // Also notify about logon/logout times when status changes
+                if (e.NewStatus == SessionStatus.LoggedOn)
+                {
+                    OnPropertyChanged(nameof(LastLogonFormatted));
+                }
+                else if (e.NewStatus == SessionStatus.Stopped)
+                {
+                    OnPropertyChanged(nameof(LastLogoutFormatted));
+                }
+            });
         }
 
         private void OnFixEngineHeartbeatReceived(object? sender, Domain.Events.HeartbeatReceivedEvent e)
         {
-            if (e.SessionKey != SessionKey) return;
+            if (e.SessionKey != SessionKey || _disposed) return;
 
-            OnPropertyChanged(nameof(LastHeartbeatFormatted));
-            OnPropertyChanged(nameof(LastHeartbeat));
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                OnPropertyChanged(nameof(LastHeartbeatFormatted));
+                OnPropertyChanged(nameof(LastHeartbeat));
+            });
         }
 
         private void OnFixEngineErrorOccurred(object? sender, Domain.Events.ErrorOccurredEvent e)
         {
-            if (e.SessionKey != SessionKey) return;
+            if (e.SessionKey != SessionKey || _disposed) return;
 
-            OnPropertyChanged(nameof(LastError));
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+                OnPropertyChanged(nameof(LastError));
+            });
         }
 
         // Basic Properties
@@ -112,6 +135,7 @@ namespace FxFixGateway.UI.ViewModels
 
         public void Dispose()
         {
+            _disposed = true;
             _fixEngine.StatusChanged -= OnFixEngineStatusChanged;
             _fixEngine.HeartbeatReceived -= OnFixEngineHeartbeatReceived;
             _fixEngine.ErrorOccurred -= OnFixEngineErrorOccurred;

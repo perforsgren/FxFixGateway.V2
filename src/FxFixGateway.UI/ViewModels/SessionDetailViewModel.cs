@@ -1,4 +1,5 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -9,7 +10,7 @@ using FxFixGateway.Domain.Interfaces;
 
 namespace FxFixGateway.UI.ViewModels
 {
-    public partial class SessionDetailViewModel : ObservableObject
+    public partial class SessionDetailViewModel : ObservableObject, IDisposable
     {
         private readonly SessionManagementService _sessionManagementService;
 
@@ -32,49 +33,61 @@ namespace FxFixGateway.UI.ViewModels
             IFixEngine? fixEngine = null)
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
-            
-            // Skapa MessageLogViewModel om messageLogger finns
+
+            // Pass fixEngine to MessageLogViewModel for real-time updates
             if (messageLogger != null)
             {
-                _messageLog = new MessageLogViewModel(messageLogger);
+                _messageLog = new MessageLogViewModel(messageLogger, fixEngine);
             }
 
-            // Skapa AckQueueViewModel om repositories finns
             if (ackQueueRepository != null && fixEngine != null)
             {
                 _ackQueue = new AckQueueViewModel(ackQueueRepository, fixEngine);
             }
         }
 
-        // Computed properties for button states
-        public bool CanStart => SelectedSession?.Status == SessionStatus.Stopped || 
+        public bool CanStart => SelectedSession?.Status == SessionStatus.Stopped ||
                                 SelectedSession?.Status == SessionStatus.Error;
-        
-        public bool CanStop => SelectedSession?.Status == SessionStatus.LoggedOn || 
+
+        public bool CanStop => SelectedSession?.Status == SessionStatus.LoggedOn ||
                                SelectedSession?.Status == SessionStatus.Connecting ||
                                SelectedSession?.Status == SessionStatus.Starting;
-        
+
         public bool CanRestart => SelectedSession?.Status == SessionStatus.LoggedOn;
 
-        partial void OnSelectedSessionChanged(SessionViewModel? value)
+        partial void OnSelectedSessionChanged(SessionViewModel? oldValue, SessionViewModel? newValue)
         {
-            // Notify that button states may have changed
-            OnPropertyChanged(nameof(CanStart));
-            OnPropertyChanged(nameof(CanStop));
-            OnPropertyChanged(nameof(CanRestart));
+            if (oldValue != null)
+            {
+                oldValue.PropertyChanged -= OnSelectedSessionPropertyChanged;
+            }
 
-            // Load messages for the selected session
-            if (value != null)
+            if (newValue != null)
+            {
+                newValue.PropertyChanged += OnSelectedSessionPropertyChanged;
+            }
+
+            RefreshButtonStates();
+
+            if (newValue != null)
             {
                 if (MessageLog != null)
                 {
-                    _ = MessageLog.LoadMessagesAsync(value.SessionKey);
+                    _ = MessageLog.LoadMessagesAsync(newValue.SessionKey);
                 }
 
                 if (AckQueue != null)
                 {
-                    _ = AckQueue.LoadAcksAsync(value.SessionKey);
+                    _ = AckQueue.LoadAcksAsync(newValue.SessionKey);
                 }
+            }
+        }
+
+        private void OnSelectedSessionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SessionViewModel.Status))
+            {
+                RefreshButtonStates();
             }
         }
 
@@ -86,7 +99,6 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 await _sessionManagementService.StartSessionAsync(SelectedSession.SessionKey);
-                RefreshButtonStates();
             }
             catch (Exception ex)
             {
@@ -102,7 +114,6 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 await _sessionManagementService.StopSessionAsync(SelectedSession.SessionKey);
-                RefreshButtonStates();
             }
             catch (Exception ex)
             {
@@ -118,7 +129,6 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 await _sessionManagementService.RestartSessionAsync(SelectedSession.SessionKey);
-                RefreshButtonStates();
             }
             catch (Exception ex)
             {
@@ -200,6 +210,11 @@ namespace FxFixGateway.UI.ViewModels
                     MessageBox.Show($"Failed to delete session: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
+        }
+
+        public void Dispose()
+        {
+            MessageLog?.Dispose();
         }
     }
 }

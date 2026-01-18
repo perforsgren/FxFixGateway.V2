@@ -23,8 +23,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             string fileLogPath = null,
             string dataDictionaryPath = null)
         {
-            _fileStorePath = fileStorePath ?? Path.Combine(Directory.GetCurrentDirectory(), "store");
-            _fileLogPath = fileLogPath ?? Path.Combine(Directory.GetCurrentDirectory(), "log");
+            _fileStorePath = fileStorePath ?? "store";
+            _fileLogPath = fileLogPath ?? "log";
             _dataDictionaryPath = dataDictionaryPath;
 
             // Skapa directories om de inte finns
@@ -70,56 +70,71 @@ namespace FxFixGateway.Infrastructure.QuickFix
         {
             var sb = new StringBuilder();
 
+            // Ta första config för DEFAULT-värden (alla borde ha samma)
+            var firstConfig = configurations.First();
+
             // [DEFAULT] section
             sb.AppendLine("[DEFAULT]");
             sb.AppendLine("ConnectionType=initiator");
-            sb.AppendLine("ReconnectInterval=30");
+            sb.AppendLine($"BeginString={firstConfig.FixVersion}");
+            sb.AppendLine($"HeartBtInt={firstConfig.HeartBtIntSec}");
+            sb.AppendLine($"ReconnectInterval={firstConfig.ReconnectIntervalSeconds}");
+            sb.AppendLine($"StartTime={firstConfig.StartTime:hh\\:mm\\:ss}");
+            sb.AppendLine($"EndTime={firstConfig.EndTime:hh\\:mm\\:ss}");
             sb.AppendLine($"FileStorePath={_fileStorePath}");
             sb.AppendLine($"FileLogPath={_fileLogPath}");
-            sb.AppendLine("StartTime=00:00:00");
-            sb.AppendLine("EndTime=00:00:00");
-            sb.AppendLine("UseDataDictionary=Y");
-            sb.AppendLine("ValidateUserDefinedFields=N");
-            sb.AppendLine("ValidateFieldsOutOfOrder=N");
-            sb.AppendLine("ValidateFieldsHaveValues=N");
-            sb.AppendLine("ValidateUnorderedGroupFields=N");
-            sb.AppendLine("CheckLatency=N");
+            sb.AppendLine();
 
+            // Data Dictionary
+            sb.AppendLine("UseDataDictionary=Y");
             if (!string.IsNullOrEmpty(_dataDictionaryPath) && File.Exists(_dataDictionaryPath))
             {
                 sb.AppendLine($"DataDictionary={_dataDictionaryPath}");
             }
-
+            else if (!string.IsNullOrEmpty(firstConfig.DataDictionaryFile))
+            {
+                sb.AppendLine($"DataDictionary={firstConfig.DataDictionaryFile}");
+            }
             sb.AppendLine();
+
+            // Validation
+            sb.AppendLine("ValidateFieldsOutOfOrder=N");
+            sb.AppendLine("ValidateUserDefinedFields=N");
+            sb.AppendLine();
+
+            sb.AppendLine("AllowUnknownMsgFields=Y");
+            sb.AppendLine();
+
+            sb.AppendLine("CheckLatency=N");
+            sb.AppendLine("ResetOnLogon=Y");
+            sb.AppendLine("ResetOnLogout=Y");
+            sb.AppendLine("ResetOnDisconnect=Y");
+            sb.AppendLine();
+
+            // SSL settings (om första config använder SSL)
+            if (firstConfig.UseSsl)
+            {
+                sb.AppendLine("SSLEnable=Y");
+                sb.AppendLine("SSLProtocols=Tls12");
+                sb.AppendLine("SSLValidateCertificates=N");
+                sb.AppendLine("SSLCheckCertificateRevocation=N");
+
+                if (!string.IsNullOrEmpty(firstConfig.SslServerName))
+                {
+                    sb.AppendLine($"SSLServerName={firstConfig.SslServerName}");
+                }
+                sb.AppendLine();
+            }
 
             // [SESSION] sections - en per konfiguration
             foreach (var config in configurations)
             {
                 sb.AppendLine("[SESSION]");
-                sb.AppendLine($"BeginString={config.FixVersion}");
                 sb.AppendLine($"SenderCompID={config.SenderCompId}");
                 sb.AppendLine($"TargetCompID={config.TargetCompId}");
+                sb.AppendLine();
                 sb.AppendLine($"SocketConnectHost={config.Host}");
                 sb.AppendLine($"SocketConnectPort={config.Port}");
-                sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");
-                sb.AppendLine($"ReconnectInterval={config.ReconnectIntervalSeconds}");
-
-                if (config.StartTime != TimeSpan.Zero || config.EndTime != TimeSpan.Zero)
-                {
-                    sb.AppendLine($"StartTime={config.StartTime:hh\\:mm\\:ss}");
-                    sb.AppendLine($"EndTime={config.EndTime:hh\\:mm\\:ss}");
-                }
-
-                if (!string.IsNullOrEmpty(config.LogonUsername))
-                {
-                    sb.AppendLine($"Username={config.LogonUsername}");
-
-                    if (!string.IsNullOrEmpty(config.Password))
-                    {
-                        sb.AppendLine($"Password={config.Password}");
-                    }
-                }
-
                 sb.AppendLine();
             }
 

@@ -8,56 +8,41 @@ namespace FxFixGateway.Application.Services
 {
     /// <summary>
     /// Hanterar processning av inkommande FIX-meddelanden.
-    /// Normaliserar AE-meddelanden till trades med hjälp av FxTradeHub.
     /// </summary>
     public sealed class MessageProcessingService
     {
+        private readonly IFixEngine _fixEngine;
         private readonly IMessageLogger _messageLogger;
         private readonly ILogger<MessageProcessingService> _logger;
 
-        // TODO: Injicera FxTradeHub när det finns tillgängligt
-        // private readonly ITradeNormalizer _tradeNormalizer;
-
         public MessageProcessingService(
+            IFixEngine fixEngine,
             IMessageLogger messageLogger,
             ILogger<MessageProcessingService> logger)
         {
+            _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
             _messageLogger = messageLogger ?? throw new ArgumentNullException(nameof(messageLogger));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+
+            // Auto-register event handlers
+            _fixEngine.MessageReceived += OnMessageReceived;
+            _fixEngine.MessageSent += OnMessageSent;
+
+            _logger.LogInformation("MessageProcessingService initialized and listening for FIX events");
         }
 
-        /// <summary>
-        /// Registrerar event handlers mot FixEngine.
-        /// </summary>
-        public void RegisterEventHandlers(IFixEngine fixEngine)
-        {
-            if (fixEngine == null)
-                throw new ArgumentNullException(nameof(fixEngine));
-
-            fixEngine.MessageReceived += OnMessageReceived;
-            fixEngine.MessageSent += OnMessageSent;
-        }
-
-        /// <summary>
-        /// Event handler för inkommande meddelanden.
-        /// </summary>
         private async void OnMessageReceived(object? sender, MessageReceivedEvent e)
         {
             try
             {
-                _logger.LogInformation("Received {MsgType} message for session {SessionKey}",
-                    e.MsgType, e.SessionKey);
-
-                // 1. Logga meddelandet till DB
+                _logger.LogDebug("Received {MsgType} message for session {SessionKey}", e.MsgType, e.SessionKey);
                 await _messageLogger.LogIncomingAsync(e.SessionKey, e.MsgType, e.RawMessage);
 
-                // 2. Om det är ett AE-meddelande (TradeCaptureReport) → normalisera
+                // Om det är ett AE-meddelande → normalisera (TODO)
                 if (e.MsgType == "AE")
                 {
-                    await ProcessTradeCaptureReportAsync(e.SessionKey, e.RawMessage);
+                    _logger.LogInformation("Processing TradeCaptureReport for {SessionKey}", e.SessionKey);
                 }
-
-                // 3. Andra meddelandetyper kan hanteras här
             }
             catch (Exception ex)
             {
@@ -65,39 +50,17 @@ namespace FxFixGateway.Application.Services
             }
         }
 
-        /// <summary>
-        /// Event handler för utgående meddelanden.
-        /// </summary>
         private async void OnMessageSent(object? sender, MessageSentEvent e)
         {
             try
             {
-                _logger.LogInformation("Sent {MsgType} message for session {SessionKey}",
-                    e.MsgType, e.SessionKey);
-
-                // Logga utgående meddelande till DB
+                _logger.LogDebug("Sent {MsgType} message for session {SessionKey}", e.MsgType, e.SessionKey);
                 await _messageLogger.LogOutgoingAsync(e.SessionKey, e.MsgType, e.RawMessage);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to log outgoing message for session {SessionKey}", e.SessionKey);
             }
-        }
-
-        /// <summary>
-        /// Normaliserar ett AE-meddelande till en trade.
-        /// </summary>
-        private async Task ProcessTradeCaptureReportAsync(string sessionKey, string rawMessage)
-        {
-            _logger.LogDebug("Normalizing AE message for session {SessionKey}", sessionKey);
-
-            // TODO: Integrera med FxTradeHub här
-            // var trade = _tradeNormalizer.ParseAE(rawMessage);
-            // await _tradeRepository.SaveAsync(trade);
-
-            _logger.LogDebug("AE message normalized and saved to database");
-
-            await Task.CompletedTask;
         }
     }
 }

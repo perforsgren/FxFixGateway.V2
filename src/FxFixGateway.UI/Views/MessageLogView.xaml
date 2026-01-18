@@ -27,14 +27,12 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Search Box -->
             <TextBox Grid.Column="0"
                      materialDesign:HintAssist.Hint="Search messages..."
                      Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
                      Style="{StaticResource MaterialDesignOutlinedTextBox}"
                      Margin="0,0,8,0"/>
 
-            <!-- Direction Filter -->
             <ComboBox Grid.Column="1"
                       ItemsSource="{Binding DirectionOptions}"
                       SelectedItem="{Binding SelectedDirection}"
@@ -43,7 +41,6 @@
                       Width="120"
                       Margin="0,0,8,0"/>
 
-            <!-- MsgType Filter -->
             <ComboBox Grid.Column="2"
                       ItemsSource="{Binding MsgTypeOptions}"
                       SelectedItem="{Binding SelectedMsgType}"
@@ -52,7 +49,6 @@
                       Width="100"
                       Margin="0,0,8,0"/>
 
-            <!-- Refresh Button -->
             <Button Grid.Column="3"
                     Command="{Binding RefreshCommand}"
                     Style="{StaticResource MaterialDesignOutlinedButton}"
@@ -62,7 +58,6 @@
                 <materialDesign:PackIcon Kind="Refresh" Width="20" Height="20"/>
             </Button>
 
-            <!-- Clear Button -->
             <Button Grid.Column="4"
                     Command="{Binding ClearMessagesCommand}"
                     Style="{StaticResource MaterialDesignOutlinedButton}"
@@ -82,23 +77,25 @@
                   CanUserAddRows="False"
                   CanUserDeleteRows="False"
                   CanUserReorderColumns="False"
+                  CanUserResizeColumns="True"
                   GridLinesVisibility="Horizontal"
                   HeadersVisibility="Column"
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Auto">
 
             <DataGrid.Columns>
-                <!-- Time -->
+                <!-- Time: 110px -->
                 <DataGridTextColumn Header="Time" 
                                     Binding="{Binding TimeFormatted}" 
-                                    Width="100"/>
+                                    Width="110"/>
 
-                <!-- Direction -->
-                <DataGridTemplateColumn Header="Dir" Width="50">
+                <!-- Direction: 90px -->
+                <DataGridTemplateColumn Header="Direction" Width="90">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
-                            <Border Padding="4,2" 
+                            <Border Padding="8,3" 
                                     CornerRadius="3"
+                                    Margin="2"
                                     HorizontalAlignment="Center">
                                 <Border.Style>
                                     <Style TargetType="Border">
@@ -112,18 +109,26 @@
                                 </Border.Style>
                                 <TextBlock Text="{Binding DirectionText}" 
                                            FontWeight="SemiBold"
-                                           FontSize="11"/>
+                                           FontSize="11"
+                                           HorizontalAlignment="Center"/>
                             </Border>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- MsgType -->
+                <!-- Type: 70px -->
                 <DataGridTextColumn Header="Type" 
                                     Binding="{Binding MsgType}" 
-                                    Width="60"/>
+                                    Width="70">
+                    <DataGridTextColumn.ElementStyle>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="HorizontalAlignment" Value="Center"/>
+                            <Setter Property="VerticalAlignment" Value="Center"/>
+                        </Style>
+                    </DataGridTextColumn.ElementStyle>
+                </DataGridTextColumn>
 
-                <!-- Summary -->
+                <!-- Summary: fills remaining space -->
                 <DataGridTextColumn Header="Summary" 
                                     Binding="{Binding Summary}" 
                                     Width="*"/>
@@ -161,7 +166,6 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <!-- Raw Message Header -->
                 <Grid Grid.Row="0" Background="{DynamicResource MaterialDesignToolBarBackground}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -189,7 +193,6 @@
                     </Button>
                 </Grid>
 
-                <!-- Raw Message Content -->
                 <TextBox Grid.Row="1"
                          Text="{Binding RawMessageText, Mode=OneWay}"
                          IsReadOnly="True"

@@ -6,15 +6,18 @@ using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FxFixGateway.Domain.Enums;
+using FxFixGateway.Domain.Events;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 
 namespace FxFixGateway.UI.ViewModels
 {
-    public partial class MessageLogViewModel : ObservableObject
+    public partial class MessageLogViewModel : ObservableObject, IDisposable
     {
         private readonly IMessageLogger _messageLogger;
+        private readonly IFixEngine? _fixEngine;
         private string? _currentSessionKey;
+        private bool _disposed;
 
         [ObservableProperty]
         private ObservableCollection<MessageLogEntryViewModel> _messages = new();
@@ -47,9 +50,77 @@ namespace FxFixGateway.UI.ViewModels
             "All", "AE", "AR", "0", "A", "5", "8"
         };
 
-        public MessageLogViewModel(IMessageLogger messageLogger)
+        public MessageLogViewModel(IMessageLogger messageLogger, IFixEngine? fixEngine = null)
         {
             _messageLogger = messageLogger ?? throw new ArgumentNullException(nameof(messageLogger));
+            _fixEngine = fixEngine;
+
+            // Subscribe to real-time events if engine is available
+            if (_fixEngine != null)
+            {
+                _fixEngine.MessageReceived += OnMessageReceived;
+                _fixEngine.MessageSent += OnMessageSent;
+            }
+        }
+
+        private void OnMessageReceived(object? sender, MessageReceivedEvent e)
+        {
+            if (_disposed || e.SessionKey != _currentSessionKey) return;
+
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+
+                var entry = new MessageLogEntry(
+                    e.ReceivedAtUtc,
+                    MessageDirection.Incoming,
+                    e.MsgType,
+                    GetMessageSummary(e.MsgType),
+                    e.RawMessage);
+
+                // Insert at top (newest first)
+                Messages.Insert(0, new MessageLogEntryViewModel(entry));
+                OnPropertyChanged(nameof(FilteredMessages));
+            });
+        }
+
+        private void OnMessageSent(object? sender, MessageSentEvent e)
+        {
+            if (_disposed || e.SessionKey != _currentSessionKey) return;
+
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                if (_disposed) return;
+
+                var entry = new MessageLogEntry(
+                    e.SentAtUtc,
+                    MessageDirection.Outgoing,
+                    e.MsgType,
+                    GetMessageSummary(e.MsgType),
+                    e.RawMessage);
+
+                // Insert at top (newest first)
+                Messages.Insert(0, new MessageLogEntryViewModel(entry));
+                OnPropertyChanged(nameof(FilteredMessages));
+            });
+        }
+
+        private string GetMessageSummary(string msgType)
+        {
+            return msgType switch
+            {
+                "0" => "Heartbeat",
+                "A" => "Logon",
+                "5" => "Logout",
+                "AE" => "TradeCaptureReport",
+                "AR" => "TradeCaptureReportAck",
+                "8" => "ExecutionReport",
+                "1" => "TestRequest",
+                "2" => "ResendRequest",
+                "3" => "Reject",
+                "4" => "SequenceReset",
+                _ => $"MsgType {msgType}"
+            };
         }
 
         public async Task LoadMessagesAsync(string sessionKey)
@@ -73,6 +144,8 @@ namespace FxFixGateway.UI.ViewModels
                 {
                     Messages.Add(new MessageLogEntryViewModel(entry));
                 }
+                
+                OnPropertyChanged(nameof(FilteredMessages));
             }
             catch (Exception ex)
             {
@@ -119,6 +192,7 @@ namespace FxFixGateway.UI.ViewModels
         {
             Messages.Clear();
             RawMessageText = string.Empty;
+            OnPropertyChanged(nameof(FilteredMessages));
         }
 
         public ObservableCollection<MessageLogEntryViewModel> FilteredMessages
@@ -127,7 +201,6 @@ namespace FxFixGateway.UI.ViewModels
             {
                 var filtered = Messages.AsEnumerable();
 
-                // Filter by direction
                 if (SelectedDirection != "All")
                 {
                     var direction = SelectedDirection == "Incoming" 
@@ -136,13 +209,11 @@ namespace FxFixGateway.UI.ViewModels
                     filtered = filtered.Where(m => m.Direction == direction);
                 }
 
-                // Filter by message type
                 if (SelectedMsgType != "All")
                 {
                     filtered = filtered.Where(m => m.MsgType == SelectedMsgType);
                 }
 
-                // Filter by text
                 if (!string.IsNullOrWhiteSpace(FilterText))
                 {
                     var search = FilterText.ToLowerInvariant();
@@ -159,11 +230,18 @@ namespace FxFixGateway.UI.ViewModels
         partial void OnFilterTextChanged(string value) => OnPropertyChanged(nameof(FilteredMessages));
         partial void OnSelectedDirectionChanged(string value) => OnPropertyChanged(nameof(FilteredMessages));
         partial void OnSelectedMsgTypeChanged(string value) => OnPropertyChanged(nameof(FilteredMessages));
+
+        public void Dispose()
+        {
+            _disposed = true;
+            if (_fixEngine != null)
+            {
+                _fixEngine.MessageReceived -= OnMessageReceived;
+                _fixEngine.MessageSent -= OnMessageSent;
+            }
+        }
     }
 
-    /// <summary>
-    /// ViewModel för en enskild meddelandeloggpost.
-    /// </summary>
     public partial class MessageLogEntryViewModel : ObservableObject
     {
         private readonly MessageLogEntry _entry;
@@ -182,7 +260,7 @@ namespace FxFixGateway.UI.ViewModels
         public string RawText => _entry.RawText;
 
         public string DirectionColor => _entry.Direction == MessageDirection.Incoming 
-            ? "#E3F2FD"  // Light blue
-            : "#E8F5E9"; // Light green
+            ? "#E3F2FD"
+            : "#E8F5E9";
     }
 }

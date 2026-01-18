@@ -45,25 +45,39 @@ namespace FxFixGateway.Infrastructure.QuickFix
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey,
                 SessionStatus.LoggedOn,
-                SessionStatus.Disconnecting));
+                SessionStatus.Stopped));
         }
 
+        /// <summary>
+        /// Called when sending admin messages (Logon, Logout, Heartbeat, etc.)
+        /// </summary>
         public void ToAdmin(QF.Message message, QF.SessionID sessionId)
         {
-            var msgType = GetMessageType(message);
+            var sessionKey = GetSessionKey(sessionId);
+            if (sessionKey == null) return;
 
-            if (msgType == "0") // Heartbeat
+            var msgType = GetMessageType(message);
+            var rawMessage = message.ToString();
+
+            // Log ALL outgoing admin messages (Logon=A, Logout=5, Heartbeat=0, etc.)
+            MessageSent?.Invoke(this, new MessageSentEvent(
+                sessionKey,
+                msgType,
+                rawMessage,
+                DateTime.UtcNow));
+
+            // Also fire heartbeat event for UI updates
+            if (msgType == "0")
             {
-                var sessionKey = GetSessionKey(sessionId);
-                if (sessionKey != null)
-                {
-                    HeartbeatReceived?.Invoke(this, new HeartbeatReceivedEvent(
-                        sessionKey,
-                        DateTime.UtcNow));
-                }
+                HeartbeatReceived?.Invoke(this, new HeartbeatReceivedEvent(
+                    sessionKey,
+                    DateTime.UtcNow));
             }
         }
 
+        /// <summary>
+        /// Called when sending application messages (AE, AR, etc.)
+        /// </summary>
         public void ToApp(QF.Message message, QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
@@ -79,11 +93,36 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 DateTime.UtcNow));
         }
 
+        /// <summary>
+        /// Called when receiving admin messages (Logon, Logout, Heartbeat, etc.)
+        /// </summary>
         public void FromAdmin(QF.Message message, QF.SessionID sessionId)
         {
-            // Admin messages received
+            var sessionKey = GetSessionKey(sessionId);
+            if (sessionKey == null) return;
+
+            var msgType = GetMessageType(message);
+            var rawMessage = message.ToString();
+
+            // Log ALL incoming admin messages
+            MessageReceived?.Invoke(this, new MessageReceivedEvent(
+                sessionKey,
+                msgType,
+                rawMessage,
+                DateTime.UtcNow));
+
+            // Also fire heartbeat event for UI updates
+            if (msgType == "0")
+            {
+                HeartbeatReceived?.Invoke(this, new HeartbeatReceivedEvent(
+                    sessionKey,
+                    DateTime.UtcNow));
+            }
         }
 
+        /// <summary>
+        /// Called when receiving application messages (AE, AR, etc.)
+        /// </summary>
         public void FromApp(QF.Message message, QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
@@ -119,7 +158,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 // Ignore parsing errors
             }
 
-            return "UNKNOWN";
+            return "?";
         }
     }
 }

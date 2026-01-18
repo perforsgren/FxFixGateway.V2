@@ -9,9 +9,6 @@ using MySql.Data.MySqlClient;
 
 namespace FxFixGateway.Infrastructure.Persistence
 {
-    /// <summary>
-    /// ADO.NET implementation för att logga FIX-meddelanden till MessageIn-tabell.
-    /// </summary>
     public sealed class MessageLogRepository : IMessageLogger
     {
         private readonly string _connectionString;
@@ -42,34 +39,58 @@ namespace FxFixGateway.Infrastructure.Persistence
                 SELECT
                     ReceivedUtc,
                     Direction,
-                    MsgType,
+                    MessageType,
                     RawMessage
                 FROM MessageIn
                 WHERE SessionKey = @SessionKey
                 ORDER BY ReceivedUtc DESC
                 LIMIT @MaxCount;";
 
-            await using var connection = new MySqlConnection(_connectionString);
-            await connection.OpenAsync();
-
-            await using var command = new MySqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@SessionKey", sessionKey);
-            command.Parameters.AddWithValue("@MaxCount", maxCount);
-
-            await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
-
-            while (await reader.ReadAsync())
+            try
             {
-                var timestamp = reader.GetDateTime(0);
-                var direction = Enum.Parse<MessageDirection>(reader.GetString(1));
-                var msgType = reader.GetString(2);
-                var rawMessage = reader.GetString(3);
+                await using var connection = new MySqlConnection(_connectionString);
+                await connection.OpenAsync();
 
-                // Summary genereras från msgType (kan göras smartare senare)
-                var summary = GetMessageSummary(msgType);
+                await using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@SessionKey", sessionKey);
+                command.Parameters.AddWithValue("@MaxCount", maxCount);
 
-                var entry = new MessageLogEntry(timestamp, direction, msgType, summary, rawMessage);
-                result.Add(entry);
+                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+
+                while (await reader.ReadAsync())
+                {
+                    try
+                    {
+                        var timestamp = reader.GetDateTime(0);
+                        var directionStr = reader.IsDBNull(1) ? "Incoming" : reader.GetString(1);
+                        var direction = Enum.TryParse<MessageDirection>(directionStr, out var dir) ? dir : MessageDirection.Incoming;
+                        
+                        var msgType = reader.IsDBNull(2) ? "?" : reader.GetString(2);
+                        if (string.IsNullOrWhiteSpace(msgType)) msgType = "?";
+                        
+                        var rawMessage = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
+
+                        var summary = GetMessageSummary(msgType);
+                        var entry = new MessageLogEntry(timestamp, direction, msgType, summary, rawMessage);
+                        result.Add(entry);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MessageLogRepository] Row parse error: {ex.Message}");
+                    }
+                }
+            }
+            catch (MySqlException ex)
+            {
+                // Skriv ut ALLA detaljer till Debug output
+                System.Diagnostics.Debug.WriteLine("========== MySQL ERROR in GetRecentAsync ==========");
+                System.Diagnostics.Debug.WriteLine($"Error Number: {ex.Number}");
+                System.Diagnostics.Debug.WriteLine($"SqlState: {ex.SqlState}");
+                System.Diagnostics.Debug.WriteLine($"Message: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SQL: {sql}");
+                System.Diagnostics.Debug.WriteLine($"SessionKey: {sessionKey}");
+                System.Diagnostics.Debug.WriteLine($"StackTrace: {ex.StackTrace}");
+                System.Diagnostics.Debug.WriteLine("====================================================");
             }
 
             return result;
@@ -79,21 +100,37 @@ namespace FxFixGateway.Infrastructure.Persistence
         {
             var sql = @"
                 INSERT INTO MessageIn
-                (SessionKey, MsgType, RawMessage, ReceivedUtc, Direction)
+                (SessionKey, MessageType, RawMessage, ReceivedUtc, Direction)
                 VALUES
-                (@SessionKey, @MsgType, @RawMessage, @ReceivedUtc, @Direction);";
+                (@SessionKey, @MessageType, @RawMessage, @ReceivedUtc, @Direction);";
 
-            await using var connection = new MySqlConnection(_connectionString);
-            await connection.OpenAsync();
+            try
+            {
+                await using var connection = new MySqlConnection(_connectionString);
+                await connection.OpenAsync();
 
-            await using var command = new MySqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@SessionKey", sessionKey);
-            command.Parameters.AddWithValue("@MsgType", msgType);
-            command.Parameters.AddWithValue("@RawMessage", rawMessage);
-            command.Parameters.AddWithValue("@ReceivedUtc", DateTime.UtcNow);
-            command.Parameters.AddWithValue("@Direction", direction.ToString());
+                await using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@SessionKey", sessionKey);
+                command.Parameters.AddWithValue("@MessageType", msgType ?? "?");
+                command.Parameters.AddWithValue("@RawMessage", rawMessage ?? string.Empty);
+                command.Parameters.AddWithValue("@ReceivedUtc", DateTime.UtcNow);
+                command.Parameters.AddWithValue("@Direction", direction.ToString());
 
-            await command.ExecuteNonQueryAsync();
+                await command.ExecuteNonQueryAsync();
+            }
+            catch (MySqlException ex)
+            {
+                // Skriv ut ALLA detaljer till Debug output
+                System.Diagnostics.Debug.WriteLine("========== MySQL ERROR in LogMessageAsync ==========");
+                System.Diagnostics.Debug.WriteLine($"Error Number: {ex.Number}");
+                System.Diagnostics.Debug.WriteLine($"SqlState: {ex.SqlState}");
+                System.Diagnostics.Debug.WriteLine($"Message: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"SessionKey: {sessionKey}");
+                System.Diagnostics.Debug.WriteLine($"MsgType: {msgType}");
+                System.Diagnostics.Debug.WriteLine($"Direction: {direction}");
+                System.Diagnostics.Debug.WriteLine($"StackTrace: {ex.StackTrace}");
+                System.Diagnostics.Debug.WriteLine("=====================================================");
+            }
         }
 
         private string GetMessageSummary(string msgType)
@@ -106,7 +143,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                 "AE" => "TradeCaptureReport",
                 "AR" => "TradeCaptureReportAck",
                 "8" => "ExecutionReport",
-                _ => $"Message Type {msgType}"
+                "?" => "Unknown",
+                _ => $"MsgType {msgType}"
             };
         }
     }
