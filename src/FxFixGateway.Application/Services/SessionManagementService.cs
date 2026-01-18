@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Enums;
+using FxFixGateway.Domain.Events;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -154,22 +155,22 @@ namespace FxFixGateway.Application.Services
             }
         }
 
-        private void OnFixEngineStatusChanged(object sender, (string SessionKey, SessionStatus Status) e)
+        private void OnFixEngineStatusChanged(object? sender, SessionStatusChangedEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
-                if (e.Status == SessionStatus.LoggedOn)
+                if (e.NewStatus == SessionStatus.LoggedOn)
                 {
                     session.MarkAsLoggedOn();
                 }
-                else if (e.Status == SessionStatus.Stopped)
+                else if (e.NewStatus == SessionStatus.Stopped)
                 {
                     session.MarkAsDisconnected();
                 }
             }
         }
 
-        private void OnFixEngineHeartbeatReceived(object sender, (string SessionKey, DateTime Timestamp) e)
+        private void OnFixEngineHeartbeatReceived(object? sender, HeartbeatReceivedEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
@@ -177,11 +178,11 @@ namespace FxFixGateway.Application.Services
             }
         }
 
-        private void OnFixEngineErrorOccurred(object sender, (string SessionKey, string Message) e)
+        private void OnFixEngineErrorOccurred(object? sender, ErrorOccurredEvent e)
         {
             if (_activeSessions.TryGetValue(e.SessionKey, out var session))
             {
-                session.MarkAsError(e.Message);
+                session.MarkAsError(e.ErrorMessage);
             }
         }
     }

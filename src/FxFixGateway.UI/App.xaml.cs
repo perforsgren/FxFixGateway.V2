@@ -55,14 +55,48 @@ namespace FxFixGateway.UI
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to start application: {ex.Message}",
+                // Logga ALLT till fil och console
+                Log.Fatal(ex, "APPLICATION STARTUP FAILED");
+                
+                // Bygg fullständigt felmeddelande med alla inner exceptions
+                var fullError = GetFullExceptionDetails(ex);
+                
+                // Skriv till fil också (ifall Serilog inte hunnit konfigurera)
+                var errorLogPath = Path.Combine(Directory.GetCurrentDirectory(), "startup_error.txt");
+                File.WriteAllText(errorLogPath, fullError);
+
+                MessageBox.Show(
+                    $"{fullError}\n\n(Sparat till: {errorLogPath})",
                     "Startup Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                Log.Fatal(ex, "Application startup failed");
                 Shutdown();
             }
+        }
+
+        private static string GetFullExceptionDetails(Exception ex)
+        {
+            var sb = new System.Text.StringBuilder();
+            var current = ex;
+            var level = 0;
+
+            while (current != null)
+            {
+                var indent = new string(' ', level * 2);
+                sb.AppendLine($"{indent}=== Exception Level {level} ===");
+                sb.AppendLine($"{indent}Type: {current.GetType().FullName}");
+                sb.AppendLine($"{indent}Message: {current.Message}");
+                sb.AppendLine($"{indent}Source: {current.Source}");
+                sb.AppendLine($"{indent}StackTrace:");
+                sb.AppendLine($"{indent}{current.StackTrace}");
+                sb.AppendLine();
+
+                current = current.InnerException;
+                level++;
+            }
+
+            return sb.ToString();
         }
 
         protected override void OnExit(ExitEventArgs e)
@@ -81,6 +115,11 @@ namespace FxFixGateway.UI
             var connectionString = configuration.GetConnectionString("GatewayDb")
                 ?? "Server=localhost;Database=fix_config_dev;User=root;Password=yourpassword;";
 
+            // LOGGA connection string (utan lösenord)
+            var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
+                connectionString, @"Password=[^;]*", "Password=***");
+            Log.Information("Using connection string: {ConnectionString}", safeConnStr);
+
             // Infrastructure - Repositories
             services.AddSingleton<ISessionRepository>(sp =>
                 new SessionRepository(connectionString));
@@ -91,11 +130,8 @@ namespace FxFixGateway.UI
             services.AddSingleton<IAckQueueRepository>(sp =>
                 new AckQueueRepository(connectionString));
 
-            // Infrastructure - FIX Engine (stub för nu - kommentera bort tills QuickFIX är klar)
-            // services.AddSingleton<IFixEngine, QuickFixEngine>();
-
-            // Temporary: Använd Mock istället
-            services.AddSingleton<IFixEngine>(sp => new MockFixEngine());
+            // Infrastructure - FIX Engine (Mock för nu)
+            services.AddSingleton<IFixEngine, MockFixEngine>();
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
@@ -105,8 +141,21 @@ namespace FxFixGateway.UI
             services.AddHostedService<AckPollingService>();
 
             // ViewModels
-            services.AddTransient<MainViewModel>();
             services.AddTransient<SessionListViewModel>();
+            
+            services.AddTransient<MainViewModel>(sp =>
+            {
+                var sessionManagementService = sp.GetRequiredService<SessionManagementService>();
+                var sessionListViewModel = sp.GetRequiredService<SessionListViewModel>();
+                var messageLogger = sp.GetRequiredService<IMessageLogger>();
+                var logger = sp.GetRequiredService<ILogger<MainViewModel>>();
+                
+                return new MainViewModel(
+                    sessionManagementService,
+                    sessionListViewModel,
+                    messageLogger,
+                    logger);
+            });
 
             // Views
             services.AddTransient<MainWindow>(sp =>

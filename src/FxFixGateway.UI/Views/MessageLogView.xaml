@@ -1,0 +1,217 @@
+<UserControl x:Class="FxFixGateway.UI.Views.MessageLogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:materialDesign="http://materialdesigninxaml.net/winfx/xaml/themes"
+             xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
+             mc:Ignorable="d" 
+             d:DataContext="{d:DesignInstance Type=vm:MessageLogViewModel}"
+             d:DesignHeight="500" d:DesignWidth="700">
+
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="150"/>
+        </Grid.RowDefinitions>
+
+        <!-- Filter Controls -->
+        <Grid Grid.Row="0" Margin="0,0,0,16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Search Box -->
+            <TextBox Grid.Column="0"
+                     materialDesign:HintAssist.Hint="Search messages..."
+                     Text="{Binding FilterText, UpdateSourceTrigger=PropertyChanged}"
+                     Style="{StaticResource MaterialDesignOutlinedTextBox}"
+                     Margin="0,0,8,0"/>
+
+            <!-- Direction Filter -->
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding DirectionOptions}"
+                      SelectedItem="{Binding SelectedDirection}"
+                      materialDesign:HintAssist.Hint="Direction"
+                      Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                      Width="120"
+                      Margin="0,0,8,0"/>
+
+            <!-- MsgType Filter -->
+            <ComboBox Grid.Column="2"
+                      ItemsSource="{Binding MsgTypeOptions}"
+                      SelectedItem="{Binding SelectedMsgType}"
+                      materialDesign:HintAssist.Hint="Type"
+                      Style="{StaticResource MaterialDesignOutlinedComboBox}"
+                      Width="100"
+                      Margin="0,0,8,0"/>
+
+            <!-- Refresh Button -->
+            <Button Grid.Column="3"
+                    Command="{Binding RefreshCommand}"
+                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                    ToolTip="Refresh"
+                    Margin="0,0,8,0"
+                    Padding="8">
+                <materialDesign:PackIcon Kind="Refresh" Width="20" Height="20"/>
+            </Button>
+
+            <!-- Clear Button -->
+            <Button Grid.Column="4"
+                    Command="{Binding ClearMessagesCommand}"
+                    Style="{StaticResource MaterialDesignOutlinedButton}"
+                    ToolTip="Clear"
+                    Padding="8">
+                <materialDesign:PackIcon Kind="Delete" Width="20" Height="20"/>
+            </Button>
+        </Grid>
+
+        <!-- Message List -->
+        <DataGrid Grid.Row="1"
+                  ItemsSource="{Binding FilteredMessages}"
+                  SelectedItem="{Binding SelectedMessage}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  SelectionMode="Single"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserReorderColumns="False"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Auto">
+
+            <DataGrid.Columns>
+                <!-- Time -->
+                <DataGridTextColumn Header="Time" 
+                                    Binding="{Binding TimeFormatted}" 
+                                    Width="100"/>
+
+                <!-- Direction -->
+                <DataGridTemplateColumn Header="Dir" Width="50">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Border Padding="4,2" 
+                                    CornerRadius="3"
+                                    HorizontalAlignment="Center">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="#E3F2FD"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding DirectionText}" Value="OUT">
+                                                <Setter Property="Background" Value="#E8F5E9"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding DirectionText}" 
+                                           FontWeight="SemiBold"
+                                           FontSize="11"/>
+                            </Border>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+
+                <!-- MsgType -->
+                <DataGridTextColumn Header="Type" 
+                                    Binding="{Binding MsgType}" 
+                                    Width="60"/>
+
+                <!-- Summary -->
+                <DataGridTextColumn Header="Summary" 
+                                    Binding="{Binding Summary}" 
+                                    Width="*"/>
+            </DataGrid.Columns>
+
+            <DataGrid.RowStyle>
+                <Style TargetType="DataGridRow" BasedOn="{StaticResource MaterialDesignDataGridRow}">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding DirectionText}" Value="IN">
+                            <Setter Property="Background" Value="#FAFAFA"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </DataGrid.RowStyle>
+        </DataGrid>
+
+        <!-- Separator -->
+        <GridSplitter Grid.Row="2" 
+                      Height="6" 
+                      HorizontalAlignment="Stretch" 
+                      VerticalAlignment="Center"
+                      Background="Transparent"
+                      ShowsPreview="True"/>
+
+        <!-- Raw Message Panel -->
+        <Border Grid.Row="3" 
+                Background="{DynamicResource MaterialDesignCardBackground}"
+                BorderBrush="{DynamicResource MaterialDesignDivider}"
+                BorderThickness="1"
+                CornerRadius="4"
+                Margin="0,8,0,0">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Raw Message Header -->
+                <Grid Grid.Row="0" Background="{DynamicResource MaterialDesignToolBarBackground}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0"
+                               Text="Raw FIX Message"
+                               FontWeight="SemiBold"
+                               Margin="12,8"/>
+
+                    <Button Grid.Column="1"
+                            Command="{Binding CopyRawMessageCommand}"
+                            Style="{StaticResource MaterialDesignFlatButton}"
+                            ToolTip="Copy to clipboard"
+                            Margin="4">
+                        <StackPanel Orientation="Horizontal">
+                            <materialDesign:PackIcon Kind="ContentCopy" 
+                                                     Width="16" Height="16"
+                                                     VerticalAlignment="Center"/>
+                            <TextBlock Text="Copy" 
+                                       Margin="4,0,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </Grid>
+
+                <!-- Raw Message Content -->
+                <TextBox Grid.Row="1"
+                         Text="{Binding RawMessageText, Mode=OneWay}"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto"
+                         HorizontalScrollBarVisibility="Auto"
+                         FontFamily="Consolas"
+                         FontSize="12"
+                         Margin="8"
+                         BorderThickness="0"/>
+            </Grid>
+        </Border>
+
+        <!-- Loading Overlay -->
+        <Grid Grid.RowSpan="4" 
+              Background="#88FFFFFF"
+              Visibility="{Binding IsLoading, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ProgressBar Style="{StaticResource MaterialDesignCircularProgressBar}"
+                        IsIndeterminate="True"
+                        Width="40" Height="40"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"/>
+        </Grid>
+    </Grid>
+</UserControl>

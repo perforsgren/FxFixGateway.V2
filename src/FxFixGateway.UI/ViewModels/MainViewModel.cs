@@ -1,8 +1,10 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FxFixGateway.Application.Services;
+using FxFixGateway.Domain.Interfaces;
 using Microsoft.Extensions.Logging;
 
 namespace FxFixGateway.UI.ViewModels
@@ -19,7 +21,7 @@ namespace FxFixGateway.UI.ViewModels
         private SessionListViewModel _sessionList;
 
         [ObservableProperty]
-        private SessionDetailViewModel? _sessionDetail;
+        private SessionDetailViewModel _sessionDetail;
 
         [ObservableProperty]
         private string _statusBarText = "Ready";
@@ -30,14 +32,18 @@ namespace FxFixGateway.UI.ViewModels
         public MainViewModel(
             SessionManagementService sessionManagementService,
             SessionListViewModel sessionListViewModel,
+            IMessageLogger messageLogger,
             ILogger<MainViewModel> logger)
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
             _sessionList = sessionListViewModel ?? throw new ArgumentNullException(nameof(sessionListViewModel));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
+            // Skapa SessionDetailViewModel med messageLogger
+            _sessionDetail = new SessionDetailViewModel(_sessionManagementService, messageLogger);
+
             // Lyssna på session selection
-            _sessionList.SessionSelected += OnSessionSelected;
+            _sessionList.PropertyChanged += SessionListOnPropertyChanged;
         }
 
         /// <summary>
@@ -76,16 +82,18 @@ namespace FxFixGateway.UI.ViewModels
             }
         }
 
-        private void OnSessionSelected(object? sender, SessionViewModel? session)
+        private void SessionListOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (session == null)
+            if (e.PropertyName == nameof(SessionListViewModel.SelectedSession))
             {
-                SessionDetail = null;
-                return;
+                OnSessionSelected(_sessionList.SelectedSession);
             }
+        }
 
-            // Skapa eller uppdatera SessionDetailViewModel
-            SessionDetail = new SessionDetailViewModel(session, _sessionManagementService, _logger);
+        private void OnSessionSelected(SessionViewModel? session)
+        {
+            // SessionDetail finns alltid nu, bara uppdatera SelectedSession
+            SessionDetail.SelectedSession = session;
         }
 
         [RelayCommand]

@@ -22,9 +22,31 @@ namespace FxFixGateway.UI.ViewModels
         [ObservableProperty]
         private string _searchText = string.Empty;
 
+        [ObservableProperty]
+        private bool _showOnlyEnabled = false;
+
+        // Alias for XAML compatibility
+        public string FilterText
+        {
+            get => SearchText;
+            set => SearchText = value;
+        }
+
+        public int RunningSessionsCount => Sessions.Count(s =>
+            s.Status == FxFixGateway.Domain.Enums.SessionStatus.LoggedOn ||
+            s.Status == FxFixGateway.Domain.Enums.SessionStatus.Connecting ||
+            s.Status == FxFixGateway.Domain.Enums.SessionStatus.Starting);
+
+        public event EventHandler<SessionViewModel?>? SessionSelected;
+
         public SessionListViewModel(SessionManagementService sessionManagementService)
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
+        }
+
+        partial void OnSelectedSessionChanged(SessionViewModel? value)
+        {
+            SessionSelected?.Invoke(this, value);
         }
 
         public async Task LoadSessionsAsync()

@@ -80,7 +80,7 @@ namespace FxFixGateway.Application.Mappers
                 throw new ArgumentNullException(nameof(dto));
 
             return new SessionConfiguration(
-                connectionId: dto.ConnectionId,
+                connectionId: (int)dto.ConnectionId, // <-- FIX: Explicit cast from long to int
                 sessionKey: dto.SessionKey,
                 venueCode: dto.VenueCode,
                 connectionType: dto.ConnectionType,
@@ -90,14 +90,14 @@ namespace FxFixGateway.Application.Mappers
                 port: dto.Port,
                 senderCompId: dto.SenderCompId,
                 targetCompId: dto.TargetCompId,
-                heartBtIntSec: dto.HeartbeatIntervalSeconds,  // ✅ FIX: heartbeatInterval: TimeSpan.FromSeconds(...) → heartBtIntSec: dto.HeartbeatIntervalSeconds
+                heartBtIntSec: dto.HeartbeatIntervalSeconds,
                 useSsl: dto.UseSsl,
                 sslServerName: dto.SslServerName,
                 logonUsername: dto.LogonUsername,
                 password: dto.Password,
-                ackSupported: dto.RequiresAck,  // ✅ FIX: requiresAck: → ackSupported:
+                ackSupported: dto.RequiresAck,
                 ackMode: dto.AckMode,
-                reconnectIntervalSeconds: dto.ReconnectIntervalSeconds,  // ✅ FIX: reconnectInterval: TimeSpan.FromSeconds(...) → reconnectIntervalSeconds: dto.ReconnectIntervalSeconds
+                reconnectIntervalSeconds: dto.ReconnectIntervalSeconds,
                 startTime: dto.StartTime,
                 endTime: dto.EndTime,
                 useDataDictionary: dto.UseDataDictionary,
@@ -106,7 +106,7 @@ namespace FxFixGateway.Application.Mappers
                 createdUtc: dto.CreatedUtc,
                 updatedUtc: dto.UpdatedUtc,
                 updatedBy: dto.UpdatedBy,
-                notes: string.Empty  // ✅ LÄGG TILL: notes parameter saknas
+                notes: string.Empty
             );
         }
 
