@@ -1,18 +1,51 @@
 ﻿using System;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Enums;
 
 namespace FxFixGateway.UI.ViewModels
 {
-    public partial class SessionViewModel : ObservableObject
+    public partial class SessionViewModel : ObservableObject, IDisposable
     {
         private readonly FixSession _session;
 
         public SessionViewModel(FixSession session)
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
+
+            // Lyssna på domain events från FixSession
+            _session.DomainEvents.CollectionChanged += OnDomainEventsChanged;
+        }
+
+        private void OnDomainEventsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems == null) return;
+
+            foreach (var item in e.NewItems)
+            {
+                switch (item)
+                {
+                    case Domain.Events.SessionStatusChangedEvent statusEvent:
+                        // Status ändrades - notify UI
+                        OnPropertyChanged(nameof(Status));
+                        OnPropertyChanged(nameof(StatusText));
+                        OnPropertyChanged(nameof(StatusColor));
+                        OnPropertyChanged(nameof(CanStart));
+                        OnPropertyChanged(nameof(CanStop));
+                        break;
+
+                    case Domain.Events.HeartbeatReceivedEvent:
+                        // Heartbeat mottagen - uppdatera timestamp
+                        OnPropertyChanged(nameof(LastHeartbeatFormatted));
+                        OnPropertyChanged(nameof(LastHeartbeat));
+                        break;
+
+                    case Domain.Events.ErrorOccurredEvent:
+                        // Fel uppstod - uppdatera error text
+                        OnPropertyChanged(nameof(LastError));
+                        break;
+                }
+            }
         }
 
         // Basic Properties
@@ -42,21 +75,21 @@ namespace FxFixGateway.UI.ViewModels
         public bool AckSupported => _session.Configuration.AckSupported;
         public string AckMode => _session.Configuration.AckMode;
 
-        // Status Properties
+        // Status Properties - DESSA UPPDATERAS NU AUTOMATISKT
         public SessionStatus Status => _session.Status;
-        public string StatusText => Status.ToString();  // ← LÄGG TILL DENNA RAD
+        public string StatusText => Status.ToString();
         public bool IsEnabled => _session.Configuration.IsEnabled;
         public string LastError => _session.LastError ?? "None";
 
         public string LastLogonFormatted => _session.LastLogonTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
         public string LastLogoutFormatted => _session.LastLogoutTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
         public string LastHeartbeatFormatted => _session.LastHeartbeatTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
-        public string LastHeartbeat => _session.LastHeartbeatTime?.ToString("HH:mm:ss") ?? "Never";  // ← LÄGG TILL DENNA RAD
+        public string LastHeartbeat => _session.LastHeartbeatTime?.ToString("HH:mm:ss") ?? "Never";
 
-        // Timeout Properties (not in domain, using default values)
-        public int LogonTimeout => 30;       // ← LÄGG TILL DENNA RAD
-        public int LogoutTimeout => 5;       // ← LÄGG TILL DENNA RAD
-        public bool ResetOnLogon => false;   // ← LÄGG TILL DENNA RAD
+        // Timeout Properties
+        public int LogonTimeout => 30;
+        public int LogoutTimeout => 5;
+        public bool ResetOnLogon => false;
 
         // Computed Properties
         public string StatusColor => Status switch
@@ -74,5 +107,10 @@ namespace FxFixGateway.UI.ViewModels
 
         // Access to underlying entity for commands
         public FixSession Session => _session;
+
+        public void Dispose()
+        {
+            _session.DomainEvents.CollectionChanged -= OnDomainEventsChanged;
+        }
     }
 }
