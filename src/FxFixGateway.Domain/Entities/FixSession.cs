@@ -16,13 +16,11 @@ namespace FxFixGateway.Domain.Entities
 
         // Timestamp properties
         public DateTime? LastLogonTime { get; private set; }
-        public DateTime? LastLogoutTime { get; private; }
+        public DateTime? LastLogoutTime { get; private set; }
         public DateTime? LastHeartbeatTime { get; private set; }
         public DateTime? LastMessageTime { get; private set; }
 
         public IReadOnlyCollection<DomainEventBase> DomainEvents => _domainEvents.AsReadOnly();
-
-        //Test
 
         public FixSession(SessionConfiguration configuration)
         {
@@ -114,8 +112,9 @@ namespace FxFixGateway.Domain.Entities
                 throw new InvalidOperationException("Cannot change SessionKey");
             }
 
+            var oldConfiguration = Configuration;
             Configuration = newConfiguration;
-            RaiseDomainEvent(new ConfigurationUpdatedEvent(Configuration.SessionKey, DateTime.UtcNow));
+            RaiseDomainEvent(new ConfigurationUpdatedEvent(Configuration.SessionKey, oldConfiguration, newConfiguration));
         }
 
         public void ClearDomainEvents()

@@ -10,6 +10,7 @@ namespace FxFixGateway.Application.Mappers
     /// </summary>
     public static class SessionMapper
     {
+
         /// <summary>
         /// Konverterar FixSession till SessionDto.
         /// </summary>
@@ -23,7 +24,7 @@ namespace FxFixGateway.Application.Mappers
             return new SessionDto
             {
                 // Identitet
-                SessionKey = session.SessionKey,
+                SessionKey = session.Configuration.SessionKey,  // ✅ FIX: session.SessionKey → session.Configuration.SessionKey
                 ConnectionId = config.ConnectionId,
 
                 // Konfiguration
@@ -40,26 +41,26 @@ namespace FxFixGateway.Application.Mappers
                 FixVersion = config.FixVersion,
                 SenderCompId = config.SenderCompId,
                 TargetCompId = config.TargetCompId,
-                HeartbeatIntervalSeconds = (int)config.HeartbeatInterval.TotalSeconds,
+                HeartbeatIntervalSeconds = config.HeartBtIntSec,  // ✅ FIX: (int)config.HeartbeatInterval.TotalSeconds → config.HeartBtIntSec
 
                 UseDataDictionary = config.UseDataDictionary,
                 DataDictionaryFile = config.DataDictionaryFile,
 
                 StartTime = config.StartTime,
                 EndTime = config.EndTime,
-                ReconnectIntervalSeconds = (int)config.ReconnectInterval.TotalSeconds,
+                ReconnectIntervalSeconds = config.ReconnectIntervalSeconds,  // ✅ FIX: (int)config.ReconnectInterval.TotalSeconds → config.ReconnectIntervalSeconds
 
                 LogonUsername = config.LogonUsername,
                 Password = config.Password,
 
-                RequiresAck = config.RequiresAck,
+                RequiresAck = config.AckSupported,  // ✅ FIX: config.RequiresAck → config.AckSupported
                 AckMode = config.AckMode,
 
                 // Runtime state
                 Status = session.Status,
-                LastLogonUtc = session.LastLogonUtc,
-                LastLogoutUtc = session.LastLogoutUtc,
-                LastHeartbeatUtc = session.LastHeartbeatUtc,
+                LastLogonUtc = session.LastLogonTime,      // ✅ FIX: LastLogonUtc → LastLogonTime
+                LastLogoutUtc = session.LastLogoutTime,    // ✅ FIX: LastLogoutUtc → LastLogoutTime
+                LastHeartbeatUtc = session.LastHeartbeatTime,  // ✅ FIX: LastHeartbeatUtc → LastHeartbeatTime
                 LastError = session.LastError,
 
                 // Audit
@@ -79,33 +80,35 @@ namespace FxFixGateway.Application.Mappers
                 throw new ArgumentNullException(nameof(dto));
 
             return new SessionConfiguration(
+                connectionId: dto.ConnectionId,
                 sessionKey: dto.SessionKey,
                 venueCode: dto.VenueCode,
                 connectionType: dto.ConnectionType,
+                description: dto.Description,
+                fixVersion: dto.FixVersion,
                 host: dto.Host,
                 port: dto.Port,
-                fixVersion: dto.FixVersion,
                 senderCompId: dto.SenderCompId,
                 targetCompId: dto.TargetCompId,
-                heartbeatInterval: TimeSpan.FromSeconds(dto.HeartbeatIntervalSeconds),
-                startTime: dto.StartTime,
-                endTime: dto.EndTime,
-                reconnectInterval: TimeSpan.FromSeconds(dto.ReconnectIntervalSeconds),
-                updatedBy: dto.UpdatedBy,
+                heartBtIntSec: dto.HeartbeatIntervalSeconds,  // ✅ FIX: heartbeatInterval: TimeSpan.FromSeconds(...) → heartBtIntSec: dto.HeartbeatIntervalSeconds
                 useSsl: dto.UseSsl,
                 sslServerName: dto.SslServerName,
-                description: dto.Description,
-                useDataDictionary: dto.UseDataDictionary,
-                dataDictionaryFile: dto.DataDictionaryFile,
                 logonUsername: dto.LogonUsername,
                 password: dto.Password,
-                isEnabled: dto.IsEnabled,
-                requiresAck: dto.RequiresAck,
+                ackSupported: dto.RequiresAck,  // ✅ FIX: requiresAck: → ackSupported:
                 ackMode: dto.AckMode,
+                reconnectIntervalSeconds: dto.ReconnectIntervalSeconds,  // ✅ FIX: reconnectInterval: TimeSpan.FromSeconds(...) → reconnectIntervalSeconds: dto.ReconnectIntervalSeconds
+                startTime: dto.StartTime,
+                endTime: dto.EndTime,
+                useDataDictionary: dto.UseDataDictionary,
+                dataDictionaryFile: dto.DataDictionaryFile,
+                isEnabled: dto.IsEnabled,
                 createdUtc: dto.CreatedUtc,
                 updatedUtc: dto.UpdatedUtc,
-                connectionId: dto.ConnectionId
+                updatedBy: dto.UpdatedBy,
+                notes: string.Empty  // ✅ LÄGG TILL: notes parameter saknas
             );
         }
+
     }
 }
