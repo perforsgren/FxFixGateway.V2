@@ -9,9 +9,6 @@ using Microsoft.Extensions.Logging;
 
 namespace FxFixGateway.UI.ViewModels
 {
-    /// <summary>
-    /// MainViewModel - huvudorchestrator för applikationen.
-    /// </summary>
     public partial class MainViewModel : ViewModelBase
     {
         private readonly SessionManagementService _sessionManagementService;
@@ -41,20 +38,16 @@ namespace FxFixGateway.UI.ViewModels
             _sessionList = sessionListViewModel ?? throw new ArgumentNullException(nameof(sessionListViewModel));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            // Skapa SessionDetailViewModel med alla dependencies
             _sessionDetail = new SessionDetailViewModel(
-                _sessionManagementService, 
-                messageLogger, 
-                ackQueueRepository, 
+                _sessionManagementService,
+                messageLogger,
+                ackQueueRepository,
                 fixEngine);
 
-            // Lyssna på session selection
-            _sessionList.PropertyChanged += SessionListOnPropertyChanged;
+            // ÄNDRAT: Använd SessionSelected event istället för PropertyChanged
+            _sessionList.SessionSelected += OnSessionSelected;
         }
 
-        /// <summary>
-        /// Initierar applikationen - laddar sessions från DB och startar enabled.
-        /// </summary>
         public async Task InitializeAsync()
         {
             try
@@ -64,10 +57,7 @@ namespace FxFixGateway.UI.ViewModels
 
                 _logger.LogInformation("Initializing Main ViewModel...");
 
-                // Initiera SessionManagementService (laddar från DB, startar enabled sessions)
                 await _sessionManagementService.InitializeAsync();
-
-                // Ladda sessions till UI
                 await _sessionList.LoadSessionsAsync();
 
                 var sessionCount = _sessionList.Sessions.Count;
@@ -88,15 +78,8 @@ namespace FxFixGateway.UI.ViewModels
             }
         }
 
-        private void SessionListOnPropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(SessionListViewModel.SelectedSession))
-            {
-                OnSessionSelected(_sessionList.SelectedSession);
-            }
-        }
-
-        private void OnSessionSelected(SessionViewModel? session)
+        // ÄNDRAT: Ta emot event från SessionListViewModel
+        private void OnSessionSelected(object? sender, SessionViewModel? session)
         {
             SessionDetail.SelectedSession = session;
         }

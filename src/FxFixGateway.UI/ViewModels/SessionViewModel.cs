@@ -2,50 +2,52 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Enums;
+using FxFixGateway.Domain.Interfaces;
 
 namespace FxFixGateway.UI.ViewModels
 {
     public partial class SessionViewModel : ObservableObject, IDisposable
     {
         private readonly FixSession _session;
+        private readonly IFixEngine _fixEngine;
 
-        public SessionViewModel(FixSession session)
+        public SessionViewModel(FixSession session, IFixEngine fixEngine)
         {
             _session = session ?? throw new ArgumentNullException(nameof(session));
+            _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
 
-            // Lyssna på domain events från FixSession
-            _session.DomainEvents.CollectionChanged += OnDomainEventsChanged;
+            // Lyssna på FIX engine events
+            _fixEngine.StatusChanged += OnFixEngineStatusChanged;
+            _fixEngine.HeartbeatReceived += OnFixEngineHeartbeatReceived;
+            _fixEngine.ErrorOccurred += OnFixEngineErrorOccurred;
         }
 
-        private void OnDomainEventsChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        private void OnFixEngineStatusChanged(object? sender, Domain.Events.SessionStatusChangedEvent e)
         {
-            if (e.NewItems == null) return;
+            // Uppdatera bara om det är vår session
+            if (e.SessionKey != SessionKey) return;
 
-            foreach (var item in e.NewItems)
-            {
-                switch (item)
-                {
-                    case Domain.Events.SessionStatusChangedEvent statusEvent:
-                        // Status ändrades - notify UI
-                        OnPropertyChanged(nameof(Status));
-                        OnPropertyChanged(nameof(StatusText));
-                        OnPropertyChanged(nameof(StatusColor));
-                        OnPropertyChanged(nameof(CanStart));
-                        OnPropertyChanged(nameof(CanStop));
-                        break;
+            // Notify UI om status properties
+            OnPropertyChanged(nameof(Status));
+            OnPropertyChanged(nameof(StatusText));
+            OnPropertyChanged(nameof(StatusColor));
+            OnPropertyChanged(nameof(CanStart));
+            OnPropertyChanged(nameof(CanStop));
+        }
 
-                    case Domain.Events.HeartbeatReceivedEvent:
-                        // Heartbeat mottagen - uppdatera timestamp
-                        OnPropertyChanged(nameof(LastHeartbeatFormatted));
-                        OnPropertyChanged(nameof(LastHeartbeat));
-                        break;
+        private void OnFixEngineHeartbeatReceived(object? sender, Domain.Events.HeartbeatReceivedEvent e)
+        {
+            if (e.SessionKey != SessionKey) return;
 
-                    case Domain.Events.ErrorOccurredEvent:
-                        // Fel uppstod - uppdatera error text
-                        OnPropertyChanged(nameof(LastError));
-                        break;
-                }
-            }
+            OnPropertyChanged(nameof(LastHeartbeatFormatted));
+            OnPropertyChanged(nameof(LastHeartbeat));
+        }
+
+        private void OnFixEngineErrorOccurred(object? sender, Domain.Events.ErrorOccurredEvent e)
+        {
+            if (e.SessionKey != SessionKey) return;
+
+            OnPropertyChanged(nameof(LastError));
         }
 
         // Basic Properties
@@ -75,7 +77,7 @@ namespace FxFixGateway.UI.ViewModels
         public bool AckSupported => _session.Configuration.AckSupported;
         public string AckMode => _session.Configuration.AckMode;
 
-        // Status Properties - DESSA UPPDATERAS NU AUTOMATISKT
+        // Status Properties
         public SessionStatus Status => _session.Status;
         public string StatusText => Status.ToString();
         public bool IsEnabled => _session.Configuration.IsEnabled;
@@ -110,7 +112,9 @@ namespace FxFixGateway.UI.ViewModels
 
         public void Dispose()
         {
-            _session.DomainEvents.CollectionChanged -= OnDomainEventsChanged;
+            _fixEngine.StatusChanged -= OnFixEngineStatusChanged;
+            _fixEngine.HeartbeatReceived -= OnFixEngineHeartbeatReceived;
+            _fixEngine.ErrorOccurred -= OnFixEngineErrorOccurred;
         }
     }
 }

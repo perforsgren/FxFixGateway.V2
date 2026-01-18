@@ -117,7 +117,7 @@ namespace FxFixGateway.UI
             services.AddSingleton<IAckQueueRepository>(sp =>
                 new AckQueueRepository(connectionString));
 
-            // Infrastructure - FIX Engine (Mock för nu)
+            // Infrastructure - FIX Engine
             services.AddSingleton<IFixEngine, MockFixEngine>();
 
             // Application Services
@@ -129,24 +129,8 @@ namespace FxFixGateway.UI
 
             // ViewModels
             services.AddTransient<SessionListViewModel>();
-            
-            services.AddTransient<MainViewModel>(sp =>
-            {
-                var sessionManagementService = sp.GetRequiredService<SessionManagementService>();
-                var sessionListViewModel = sp.GetRequiredService<SessionListViewModel>();
-                var messageLogger = sp.GetRequiredService<IMessageLogger>();
-                var ackQueueRepository = sp.GetRequiredService<IAckQueueRepository>();
-                var fixEngine = sp.GetRequiredService<IFixEngine>();
-                var logger = sp.GetRequiredService<ILogger<MainViewModel>>();
-                
-                return new MainViewModel(
-                    sessionManagementService,
-                    sessionListViewModel,
-                    messageLogger,
-                    ackQueueRepository,
-                    fixEngine,
-                    logger);
-            });
+            services.AddTransient<SessionDetailViewModel>();  // ← LÄGG TILL DENNA RAD
+            services.AddTransient<MainViewModel>();
 
             // Views
             services.AddTransient<MainWindow>(sp =>

@@ -1,17 +1,19 @@
-﻿using System;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using FxFixGateway.Application.Services;
+using FxFixGateway.Domain.Interfaces;
+using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
-using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
-using FxFixGateway.Application.Services;
 
 namespace FxFixGateway.UI.ViewModels
 {
     public partial class SessionListViewModel : ObservableObject
     {
         private readonly SessionManagementService _sessionManagementService;
+        private readonly IFixEngine _fixEngine;
 
         [ObservableProperty]
         private ObservableCollection<SessionViewModel> _sessions = new ObservableCollection<SessionViewModel>();
@@ -39,9 +41,12 @@ namespace FxFixGateway.UI.ViewModels
 
         public event EventHandler<SessionViewModel?>? SessionSelected;
 
-        public SessionListViewModel(SessionManagementService sessionManagementService)
+        public SessionListViewModel(
+            SessionManagementService sessionManagementService,
+            IFixEngine fixEngine)  // ← LÄGG TILL
         {
             _sessionManagementService = sessionManagementService ?? throw new ArgumentNullException(nameof(sessionManagementService));
+            _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));  // ← LÄGG TILL
         }
 
         partial void OnSelectedSessionChanged(SessionViewModel? value)
@@ -58,17 +63,17 @@ namespace FxFixGateway.UI.ViewModels
                 Sessions.Clear();
                 foreach (var session in sessions)
                 {
-                    var viewModel = new SessionViewModel(session);
+                    var viewModel = new SessionViewModel(session, _fixEngine);  // ← ANVÄND _fixEngine
                     Sessions.Add(viewModel);
                 }
             }
             catch (Exception ex)
             {
-                // Log error
                 System.Diagnostics.Debug.WriteLine($"Failed to load sessions: {ex.Message}");
                 throw;
             }
         }
+
 
         [RelayCommand]
         private void AddSession()
