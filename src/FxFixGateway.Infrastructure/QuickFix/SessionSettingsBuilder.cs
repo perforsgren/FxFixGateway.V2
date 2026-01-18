@@ -1,18 +1,12 @@
-﻿using FxFixGateway.Domain.ValueObjects;
-using MySqlX.XDevAPI;
-using QuickFix;
-using System;
-using System.Collections;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using FxFixGateway.Domain.ValueObjects;
+using QuickFix;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
-    /// <summary>
-    /// Bygger QuickFIX SessionSettings dynamiskt från SessionConfiguration.
-    /// Genererar både [DEFAULT] section och en [SESSION] per konfiguration.
-    /// </summary>
     public class SessionSettingsBuilder
     {
         private readonly string _fileStorePath;
@@ -28,14 +22,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _fileLogPath = fileLogPath ?? Path.Combine(Directory.GetCurrentDirectory(), "log");
             _dataDictionaryPath = dataDictionaryPath;
 
-            // Skapa directories om de inte finns
             Directory.CreateDirectory(_fileStorePath);
             Directory.CreateDirectory(_fileLogPath);
         }
 
-        /// <summary>
-        /// Bygger QuickFIX SessionSettings från flera SessionConfiguration.
-        /// </summary>
         public SessionSettings Build(IEnumerable<SessionConfiguration> configurations)
         {
             if (configurations == null)
@@ -47,8 +37,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             var settings = new SessionSettings();
 
-            // [DEFAULT] section - gäller alla sessions
-            var defaultDict = new Dictionary();
+            // [DEFAULT] section
+            var defaultDict = new QuickFix.Dictionary();  // ← FIX: QuickFix.Dictionary, inte Dictionary<,>
             defaultDict.SetString("ConnectionType", "initiator");
             defaultDict.SetString("ReconnectInterval", "30");
             defaultDict.SetString("FileStorePath", _fileStorePath);
@@ -62,7 +52,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             defaultDict.SetString("ValidateUnorderedGroupFields", "N");
             defaultDict.SetString("CheckLatency", "N");
 
-            // Data dictionary path (om angiven)
             if (!string.IsNullOrEmpty(_dataDictionaryPath) && File.Exists(_dataDictionaryPath))
             {
                 defaultDict.SetString("DataDictionary", _dataDictionaryPath);
@@ -70,7 +59,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             settings.Set(defaultDict);
 
-            // [SESSION] sections - en per konfiguration
+            // [SESSION] sections
             foreach (var config in configList)
             {
                 var sessionId = new SessionID(
@@ -78,17 +67,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     config.SenderCompId,
                     config.TargetCompId);
 
-                var sessionDict = new Dictionary();
+                var sessionDict = new QuickFix.Dictionary();  // ← FIX: QuickFix.Dictionary
 
-                // Connection details
                 sessionDict.SetString("SocketConnectHost", config.Host);
                 sessionDict.SetLong("SocketConnectPort", config.Port);
                 sessionDict.SetString("BeginString", config.FixVersion);
                 sessionDict.SetString("SenderCompID", config.SenderCompId);
                 sessionDict.SetString("TargetCompID", config.TargetCompId);
                 sessionDict.SetLong("HeartBtInt", config.HeartBtIntSec);
-
-                // Timing
                 sessionDict.SetLong("ReconnectInterval", config.ReconnectIntervalSeconds);
 
                 if (config.StartTime != TimeSpan.Zero || config.EndTime != TimeSpan.Zero)
@@ -97,7 +83,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     sessionDict.SetString("EndTime", config.EndTime.ToString(@"hh\:mm\:ss"));
                 }
 
-                // Authentication (om användarnamn finns)
                 if (!string.IsNullOrEmpty(config.LogonUsername))
                 {
                     sessionDict.SetString("Username", config.LogonUsername);
@@ -106,14 +91,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     {
                         sessionDict.SetString("Password", config.Password);
                     }
-                }
-
-                // SSL (QuickFIX har begränsat SSL-stöd, ofta behövs stunnel)
-                // Vi loggar bara SSL-flaggan här för framtida användning
-                if (config.UseSsl)
-                {
-                    // QuickFIX native har inte SSL - behöver stunnel eller liknande
-                    // Logga varning eller skapa stunnel-konfiguration här
                 }
 
                 settings.Set(sessionId, sessionDict);

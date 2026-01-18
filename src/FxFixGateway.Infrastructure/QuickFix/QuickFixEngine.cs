@@ -2,8 +2,9 @@
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
-using MySqlX.XDevAPI;
 using QuickFix;
+using QuickFix.Logger;
+using QuickFix.Store;
 using QuickFix.Transport;
 using System;
 using System.Collections.Generic;
@@ -13,10 +14,6 @@ using System.Threading.Tasks;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
-    /// <summary>
-    /// QuickFIX/n implementation av IFixEngine.
-    /// Hanterar alla FIX-sessioner via en SocketInitiator.
-    /// </summary>
     public class QuickFixEngine : IFixEngine, IDisposable
     {
         private readonly ILogger<QuickFixEngine>? _logger;
@@ -54,13 +51,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             _logger?.LogInformation("Initializing QuickFIX engine with {Count} sessions", configList.Count);
 
-            // Bygg SessionSettings
-            var builder = new SessionSettingsBuilder(
-                dataDictionaryPath: _dataDictionaryPath);
-
+            var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
             _settings = builder.Build(configList);
 
-            // Bygg session mappings
             _sessionKeyMap = new Dictionary<SessionID, string>();
             _sessionIdMap = new Dictionary<string, SessionID>();
 
@@ -74,11 +67,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _sessionKeyMap[sessionId] = config.SessionKey;
                 _sessionIdMap[config.SessionKey] = sessionId;
 
-                _logger?.LogDebug("Mapped QuickFIX SessionID {SessionID} to SessionKey {SessionKey}",
+                _logger?.LogDebug("Mapped SessionID {SessionID} to SessionKey {SessionKey}",
                     sessionId, config.SessionKey);
             }
 
-            // Skapa Application
             _application = new QuickFixApplication(_sessionKeyMap);
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
@@ -86,9 +78,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _application.HeartbeatReceived += OnHeartbeatReceived;
             _application.ErrorOccurred += OnErrorOccurred;
 
-            // Skapa Initiator (men starta INTE än)
-            var storeFactory = new FileStoreFactory(_settings);
-            var logFactory = new FileLogFactory(_settings);
+            var storeFactory = new FileStoreFactory(_settings);  // ← FIX: Finns i QuickFix.Transport
+            var logFactory = new FileLogFactory(_settings);      // ← FIX: Finns i QuickFix.Transport
             var messageFactory = new DefaultMessageFactory();
 
             _initiator = new SocketInitiator(
@@ -117,16 +108,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 return;
             }
 
-            // Starta initiator om den inte kör
             if (!_running && _initiator != null)
             {
                 _logger?.LogInformation("Starting QuickFIX initiator");
                 _initiator.Start();
                 _running = true;
-                await Task.Delay(500); // Ge QuickFIX tid att starta
+                await Task.Delay(500);
             }
 
-            // Logga på sessionen
             _logger?.LogInformation("Logging on session {SessionKey}", sessionKey);
 
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
@@ -134,7 +123,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 Domain.Enums.SessionStatus.Stopped,
                 Domain.Enums.SessionStatus.Starting));
 
-            var session = Session.LookupSession(sessionId);
+            var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
             if (session != null)
             {
                 session.Logon();
@@ -166,13 +155,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 Domain.Enums.SessionStatus.LoggedOn,
                 Domain.Enums.SessionStatus.Disconnecting));
 
-            var session = Session.LookupSession(sessionId);
+            var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
             if (session != null)
             {
                 session.Logout("User requested logout");
             }
 
-            await Task.Delay(300); // Ge tid för graceful disconnect
+            await Task.Delay(300);
 
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey,
@@ -200,10 +189,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             try
             {
-                var message = new QuickFix.Message();
+                var message = new QuickFix.Message();  // ← FIX: QuickFix.Message
                 message.FromString(rawFixMessage, false, null, null, null);
 
-                var session = Session.LookupSession(sessionId);
+                var session = QuickFix.Session.LookupSession(sessionId);  // ← FIX: QuickFix.Session
                 if (session != null)
                 {
                     session.Send(message);
@@ -252,7 +241,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _initialized = false;
         }
 
-        // Event forwarding
         private void OnStatusChanged(object? sender, SessionStatusChangedEvent e) => StatusChanged?.Invoke(this, e);
         private void OnMessageReceived(object? sender, MessageReceivedEvent e) => MessageReceived?.Invoke(this, e);
         private void OnMessageSent(object? sender, MessageSentEvent e) => MessageSent?.Invoke(this, e);
@@ -261,7 +249,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private string GetDefaultDataDictionaryPath()
         {
-            // Kolla om FIX44_Volbroker.xml finns i working directory
             var path = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
             return File.Exists(path) ? path : string.Empty;
         }

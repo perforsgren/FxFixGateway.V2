@@ -1,18 +1,11 @@
-﻿using FxFixGateway.Domain.Enums;
-using FxFixGateway.Domain.Events;
-using MySqlX.XDevAPI;
-using QuickFix;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using static System.Net.Mime.MediaTypeNames;
-using Message = QuickFix.Message;
+using FxFixGateway.Domain.Enums;
+using FxFixGateway.Domain.Events;
+using QuickFix;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
-    /// <summary>
-    /// QuickFIX IApplication implementation som översätter QuickFIX callbacks
-    /// till våra domain events.
-    /// </summary>
     public class QuickFixApplication : IApplication
     {
         private readonly Dictionary<SessionID, string> _sessionKeyMap;
@@ -30,7 +23,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         public void OnCreate(SessionID sessionId)
         {
-            // Session created - ingen action behövs här
+            // Session created
         }
 
         public void OnLogon(SessionID sessionId)
@@ -55,9 +48,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 SessionStatus.Disconnecting));
         }
 
-        public void ToAdmin(Message message, SessionID sessionId)
+        public void ToAdmin(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
         {
-            // Admin messages (Logon, Heartbeat, etc.) - kan loggas här
             var msgType = GetMessageType(message);
 
             if (msgType == "0") // Heartbeat
@@ -72,9 +64,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
         }
 
-        public void ToApp(Message message, SessionID sessionId)
+        public void ToApp(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
         {
-            // Application messages being SENT (AE, AR, etc.)
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
 
@@ -88,14 +79,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 DateTime.UtcNow));
         }
 
-        public void FromAdmin(Message message, SessionID sessionId)
+        public void FromAdmin(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
         {
-            // Admin messages RECEIVED - kan ignoreras eller loggas
+            // Admin messages received
         }
 
-        public void FromApp(Message message, SessionID sessionId)
+        public void FromApp(QuickFix.Message message, SessionID sessionId)  // ← FIX: QuickFix.Message
         {
-            // Application messages RECEIVED (AE från venue)
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
 
@@ -114,14 +104,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
             return _sessionKeyMap.TryGetValue(sessionId, out var key) ? key : null;
         }
 
-        private string GetMessageType(Message message)
+        private string GetMessageType(QuickFix.Message message)  // ← FIX: QuickFix.Message
         {
             try
             {
                 var header = message.Header;
-                if (header.IsSetField(QuickFix.Fields.Tags.MsgType))
+                if (header.IsSetField(QuickFix.Fields.Tags.MsgType))  // ← FIX: QuickFix.Fields.Tags
                 {
-                    return header.GetString(QuickFix.Fields.Tags.MsgType);
+                    return header.GetString(QuickFix.Fields.Tags.MsgType);  // ← FIX: QuickFix.Fields.Tags
                 }
             }
             catch
