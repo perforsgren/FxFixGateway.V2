@@ -3,6 +3,8 @@ using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 using QF = global::QuickFix;
+using FxTradeHub.Domain.Services;
+using FxTradeHub.Domain.Parsing;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -15,6 +17,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
     {
         private readonly ILogger<QuickFixEngine>? _logger;
         private readonly string _dataDictionaryPath;
+
+        // FxTradeHub services
+        private readonly IMessageInService? _messageInService;
+        private readonly IMessageInParserOrchestrator? _orchestrator;
 
         private QF.Transport.SocketInitiator? _initiator;
         private QuickFixApplication? _application;
@@ -31,10 +37,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
         public event EventHandler<HeartbeatReceivedEvent>? HeartbeatReceived;
         public event EventHandler<ErrorOccurredEvent>? ErrorOccurred;
 
-        public QuickFixEngine(ILogger<QuickFixEngine>? logger = null, string? dataDictionaryPath = null)
+        public QuickFixEngine(
+            ILogger<QuickFixEngine>? logger = null,
+            string? dataDictionaryPath = null,
+            IMessageInService? messageInService = null,
+            IMessageInParserOrchestrator? orchestrator = null)
         {
             _logger = logger;
             _dataDictionaryPath = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
+            _messageInService = messageInService;
+            _orchestrator = orchestrator;
         }
 
         public Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
@@ -51,12 +63,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
             _settings = builder.Build(configList);
 
-            _sessionKeyMap = new Dictionary<QF.SessionID, string>();
-            _sessionIdMap = new Dictionary<string, QF.SessionID>();
+            _sessionKeyMap = new Dictionary<global::QuickFix.SessionID, string>();
+            _sessionIdMap = new Dictionary<string, global::QuickFix.SessionID>();
 
             foreach (var config in configList)
             {
-                var sessionId = new QF.SessionID(
+                var sessionId = new global::QuickFix.SessionID(
                     config.FixVersion,
                     config.SenderCompId,
                     config.TargetCompId);
@@ -68,18 +80,23 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     sessionId, config.SessionKey);
             }
 
-            _application = new QuickFixApplication(_sessionKeyMap);
+            // Pass FxTradeHub services to QuickFixApplication
+            _application = new QuickFixApplication(
+                _sessionKeyMap,
+                _messageInService,
+                _orchestrator);
+
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
             _application.MessageSent += OnMessageSent;
             _application.HeartbeatReceived += OnHeartbeatReceived;
             _application.ErrorOccurred += OnErrorOccurred;
 
-            var storeFactory = new QF.Store.FileStoreFactory(_settings);
-            var logFactory = new QF.Logger.FileLogFactory(_settings);
-            var messageFactory = new QF.DefaultMessageFactory();
+            var storeFactory = new global::QuickFix.Store.FileStoreFactory(_settings);
+            var logFactory = new global::QuickFix.Logger.FileLogFactory(_settings);
+            var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
-            _initiator = new QF.Transport.SocketInitiator(
+            _initiator = new global::QuickFix.Transport.SocketInitiator(
                 _application,
                 storeFactory,
                 _settings,
@@ -92,6 +109,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _logger?.LogInformation("QuickFIX engine initialized successfully");
             return Task.CompletedTask;
         }
+
 
         public async Task StartSessionAsync(string sessionKey)
         {

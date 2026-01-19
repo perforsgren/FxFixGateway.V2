@@ -14,6 +14,9 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
+using FxTradeHub.Domain.Entities;
+using FxTradeHub.Domain.Services;
+using FxTradeHub.Domain.Parsing;
 
 namespace FxFixGateway.UI
 {
@@ -134,6 +137,14 @@ namespace FxFixGateway.UI
                 connectionString, @"Password=[^;]*", "Password=***");
             Log.Information("Using connection string: {ConnectionString}", safeConnStr);
 
+            // STP connection string (samma server, annat schema)
+            var stpConnectionString = configuration.GetConnectionString("STP")
+                ?? connectionString.Replace("fix_config_dev", "trade_stp");
+
+            var safeSTPConnStr = System.Text.RegularExpressions.Regex.Replace(
+                stpConnectionString, @"Password=[^;]*", "Password=***");
+            Log.Information("Using STP connection string: {ConnectionString}", safeSTPConnStr);
+
             // Infrastructure - Repositories
             services.AddSingleton<ISessionRepository>(sp =>
                 new SessionRepository(connectionString));
@@ -144,18 +155,41 @@ namespace FxFixGateway.UI
             services.AddSingleton<IAckQueueRepository>(sp =>
                 new AckQueueRepository(connectionString));
 
-            // Infrastructure - FIX Engine
+            // FxTradeHub services (shared lib)
+            services.AddSingleton<IMessageInService>(sp =>
+            {
+                var repo = new FxTradeHub.Data.MySql.Repositories.MessageInRepository(stpConnectionString);
+                return new FxTradeHub.Services.MessageInService(repo);
+            });
+
+            services.AddSingleton<IMessageInParserOrchestrator>(sp =>
+            {
+                var messageInRepo = new FxTradeHub.Data.MySql.Repositories.MessageInRepository(stpConnectionString);
+                var stpRepo = new FxTradeHub.Data.MySql.Repositories.MySqlStpRepository(stpConnectionString);
+                var lookupRepo = new FxTradeHub.Data.MySql.Repositories.MySqlStpLookupRepository(stpConnectionString);
+
+                var parsers = new List<IInboundMessageParser>
+        {
+            new FxTradeHub.Services.Parsing.VolbrokerFixAeParser(lookupRepo)
+        };
+
+                return new FxTradeHub.Services.Ingest.MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
+            });
+
+            // Infrastructure - FIX Engine (inject FxTradeHub services)
             services.AddSingleton<IFixEngine>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
                 var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                return new QuickFixEngine(logger, dataDictPath);
+                var messageInService = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
+                var orchestrator = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
+
+                return new QuickFixEngine(logger, dataDictPath, messageInService, orchestrator);
             });
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
-            
-            // MessageProcessingService - needs IFixEngine injected
+
             services.AddSingleton<MessageProcessingService>(sp =>
             {
                 var fixEngine = sp.GetRequiredService<IFixEngine>();
@@ -189,5 +223,6 @@ namespace FxFixGateway.UI
                 builder.AddSerilog();
             });
         }
+
     }
 }

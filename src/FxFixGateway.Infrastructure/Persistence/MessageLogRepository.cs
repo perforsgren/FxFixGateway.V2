@@ -138,12 +138,19 @@ namespace FxFixGateway.Infrastructure.Persistence
             return msgType switch
             {
                 "0" => "Heartbeat",
-                "A" => "Logon",
+                "1" => "TestRequest",
+                "2" => "ResendRequest",
+                "3" => "Reject",
+                "4" => "SequenceReset",
                 "5" => "Logout",
+                "A" => "Logon",
+                "8" => "ExecutionReport",
                 "AE" => "TradeCaptureReport",
                 "AR" => "TradeCaptureReportAck",
-                "8" => "ExecutionReport",
                 "?" => "Unknown",
+                "CREATE" => "Session Created",
+                "LOGON" => "Logon Confirmed",
+                "LOGOUT" => "Logout Received",
                 _ => $"MsgType {msgType}"
             };
         }

@@ -18,11 +18,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Configuration\" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FxFixGateway.Domain\FxFixGateway.Domain.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Configuration\" />
+    <Reference Include="FxTradeHub.Domain">
+      <HintPath>..\..\..\OptionSuite.V2\libs\FxTradeHub\FxTradeHub.Domain\bin\Debug\netstandard2.0\FxTradeHub.Domain.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>
