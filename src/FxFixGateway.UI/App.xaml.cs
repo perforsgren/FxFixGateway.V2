@@ -14,9 +14,14 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
-using FxTradeHub.Domain.Entities;
 using FxTradeHub.Domain.Services;
 using FxTradeHub.Domain.Parsing;
+using FxTradeHub.Services.Ingest;
+using FxTradeHub.Services.Parsing;
+using FxTradeHub.Data.MySql.Repositories;
+
+
+
 
 namespace FxFixGateway.UI
 {
@@ -131,13 +136,13 @@ namespace FxFixGateway.UI
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
             var connectionString = configuration.GetConnectionString("GatewayDb")
-                ?? "Server=localhost;Database=fix_config_dev;User=root;Password=yourpassword;";
+                ?? "Server=srv78506;Database=fix_config_dev;User=fxopt;Password=fxopt987;";
 
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
-            Log.Information("Using connection string: {ConnectionString}", safeConnStr);
+            Log.Information("Using GatewayDb connection string: {ConnectionString}", safeConnStr);
 
-            // STP connection string (samma server, annat schema)
+            // STP connection string (fallback: replace database name)
             var stpConnectionString = configuration.GetConnectionString("STP")
                 ?? connectionString.Replace("fix_config_dev", "trade_stp");
 
@@ -155,25 +160,26 @@ namespace FxFixGateway.UI
             services.AddSingleton<IAckQueueRepository>(sp =>
                 new AckQueueRepository(connectionString));
 
-            // FxTradeHub services (shared lib)
+            // FxTradeHub services
             services.AddSingleton<IMessageInService>(sp =>
             {
-                var repo = new FxTradeHub.Data.MySql.Repositories.MessageInRepository(stpConnectionString);
-                return new FxTradeHub.Services.MessageInService(repo);
+                var repository = new MessageInRepository(stpConnectionString);
+                var service = new MessageInService(repository);
+                return service;
             });
 
             services.AddSingleton<IMessageInParserOrchestrator>(sp =>
             {
-                var messageInRepo = new FxTradeHub.Data.MySql.Repositories.MessageInRepository(stpConnectionString);
-                var stpRepo = new FxTradeHub.Data.MySql.Repositories.MySqlStpRepository(stpConnectionString);
-                var lookupRepo = new FxTradeHub.Data.MySql.Repositories.MySqlStpLookupRepository(stpConnectionString);
+                var messageInRepo = new MessageInRepository(stpConnectionString);
+                var stpRepo = new MySqlStpRepository(stpConnectionString);
+                var lookupRepo = new MySqlStpLookupRepository(stpConnectionString);
 
                 var parsers = new List<IInboundMessageParser>
-        {
-            new FxTradeHub.Services.Parsing.VolbrokerFixAeParser(lookupRepo)
-        };
+                {
+                    new VolbrokerFixAeParser(lookupRepo)
+                };
 
-                return new FxTradeHub.Services.Ingest.MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
+                return new MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
             });
 
             // Infrastructure - FIX Engine (inject FxTradeHub services)
@@ -181,8 +187,8 @@ namespace FxFixGateway.UI
             {
                 var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
                 var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                var messageInService = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
-                var orchestrator = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
+                var messageInService = sp.GetRequiredService<IMessageInService>();
+                var orchestrator = sp.GetRequiredService<IMessageInParserOrchestrator>();
 
                 return new QuickFixEngine(logger, dataDictPath, messageInService, orchestrator);
             });
@@ -223,6 +229,7 @@ namespace FxFixGateway.UI
                 builder.AddSerilog();
             });
         }
+
 
     }
 }

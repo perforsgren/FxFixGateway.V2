@@ -45,12 +45,15 @@
   <ItemGroup>
     <Reference Include="FxTradeHub.Data.MySql">
       <HintPath>..\..\..\OptionSuite.V2\libs\FxTradeHub\FxTradeHub.Data.MySql\bin\Debug\netstandard2.0\FxTradeHub.Data.MySql.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="FxTradeHub.Domain">
       <HintPath>..\..\..\OptionSuite.V2\libs\FxTradeHub\FxTradeHub.Domain\bin\Debug\netstandard2.0\FxTradeHub.Domain.dll</HintPath>
+      <Private>True</Private>
     </Reference>
     <Reference Include="FxTradeHub.Services">
       <HintPath>..\..\..\OptionSuite.V2\libs\FxTradeHub\FxTradeHub.Services\bin\Debug\netstandard2.0\FxTradeHub.Services.dll</HintPath>
+      <Private>True</Private>
     </Reference>
   </ItemGroup>
 
