@@ -1,24 +1,22 @@
-﻿using System;
-using System.IO;
-using System.Windows;
-using FxFixGateway.Application.BackgroundServices;
+﻿using FxFixGateway.Application.BackgroundServices;
 using FxFixGateway.Application.Services;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Infrastructure.Logging;
 using FxFixGateway.Infrastructure.Persistence;
+using FxFixGateway.Infrastructure.QuickFix;
 using FxFixGateway.UI.ViewModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Serilog;
-using FxFixGateway.Infrastructure;
+using System;
+using System.IO;
+using System.Threading.Tasks;
+using System.Windows;
 
 namespace FxFixGateway.UI
 {
-    /// <summary>
-    /// Interaction logic for App.xaml
-    /// </summary>
     public partial class App : System.Windows.Application
     {
         private IHost? _host;
@@ -27,12 +25,15 @@ namespace FxFixGateway.UI
         {
             base.OnStartup(e);
 
-            // Konfigurera Serilog först
             SerilogConfiguration.Configure();
+
+#if DEBUG
+            // Suppress WPF binding errors in debug output (MaterialDesign HintAssist issue)
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level = System.Diagnostics.SourceLevels.Critical;
+#endif
 
             try
             {
-                // Bygg Host med Dependency Injection
                 _host = Host.CreateDefaultBuilder()
                     .ConfigureAppConfiguration((context, config) =>
                     {
@@ -46,28 +47,77 @@ namespace FxFixGateway.UI
                     .UseSerilog()
                     .Build();
 
-                // Starta Host
                 _host.Start();
 
-                // Skapa och visa MainWindow
+                // Ensure MessageProcessingService is instantiated to register event handlers
+                _ = _host.Services.GetRequiredService<MessageProcessingService>();
+
                 var mainWindow = _host.Services.GetRequiredService<MainWindow>();
                 mainWindow.Show();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Failed to start application: {ex.Message}",
+                Log.Fatal(ex, "APPLICATION STARTUP FAILED");
+                
+                var fullError = GetFullExceptionDetails(ex);
+                var errorLogPath = Path.Combine(Directory.GetCurrentDirectory(), "startup_error.txt");
+                File.WriteAllText(errorLogPath, fullError);
+
+                MessageBox.Show(
+                    $"{fullError}\n\n(Sparat till: {errorLogPath})",
                     "Startup Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
 
-                Log.Fatal(ex, "Application startup failed");
                 Shutdown();
             }
         }
 
-        protected override void OnExit(ExitEventArgs e)
+        private static string GetFullExceptionDetails(Exception ex)
+        {
+            var sb = new System.Text.StringBuilder();
+            var current = ex;
+            var level = 0;
+
+            while (current != null)
+            {
+                var indent = new string(' ', level * 2);
+                sb.AppendLine($"{indent}=== Exception Level {level} ===");
+                sb.AppendLine($"{indent}Type: {current.GetType().FullName}");
+                sb.AppendLine($"{indent}Message: {current.Message}");
+                sb.AppendLine($"{indent}Source: {current.Source}");
+                sb.AppendLine($"{indent}StackTrace:");
+                sb.AppendLine($"{indent}{current.StackTrace}");
+                sb.AppendLine();
+
+                current = current.InnerException;
+                level++;
+            }
+
+            return sb.ToString();
+        }
+
+        protected override async void OnExit(ExitEventArgs e)
         {
             Log.Information("Application shutting down...");
+
+            try
+            {
+                if (_host != null)
+                {
+                    var fixEngine = _host.Services.GetService<IFixEngine>();
+                    if (fixEngine != null)
+                    {
+                        Log.Information("Shutting down FIX engine gracefully...");
+                        await fixEngine.ShutdownAsync();
+                        await Task.Delay(1000); // Give QuickFIX time to send logout messages
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error during graceful shutdown");
+            }
 
             _host?.Dispose();
             SerilogConfiguration.Close();
@@ -77,9 +127,19 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            // Configuration
             var connectionString = configuration.GetConnectionString("GatewayDb")
                 ?? "Server=localhost;Database=fix_config_dev;User=root;Password=yourpassword;";
+
+            var stpConnectionString = configuration.GetConnectionString("STP")
+                ?? "Server=localhost;Database=trade_stp;User=root;Password=yourpassword;";
+
+            var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
+                connectionString, @"Password=[^;]*", "Password=***");
+            Log.Information("Using GatewayDb connection string: {ConnectionString}", safeConnStr);
+
+            var safeSTPConnStr = System.Text.RegularExpressions.Regex.Replace(
+                stpConnectionString, @"Password=[^;]*", "Password=***");
+            Log.Information("Using STP connection string: {ConnectionString}", safeSTPConnStr);
 
             // Infrastructure - Repositories
             services.AddSingleton<ISessionRepository>(sp =>
@@ -89,24 +149,34 @@ namespace FxFixGateway.UI
                 new MessageLogRepository(connectionString));
 
             services.AddSingleton<IAckQueueRepository>(sp =>
-                new AckQueueRepository(connectionString));
+                new AckQueueRepository(stpConnectionString));
 
-            // Infrastructure - FIX Engine (stub för nu - kommentera bort tills QuickFIX är klar)
-            // services.AddSingleton<IFixEngine, QuickFixEngine>();
-
-            // Temporary: Använd Mock istället
-            services.AddSingleton<IFixEngine>(sp => new MockFixEngine());
+            // Infrastructure - FIX Engine
+            services.AddSingleton<IFixEngine>(sp =>
+            {
+                var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
+                var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                return new QuickFixEngine(logger, dataDictPath);
+            });
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
-            services.AddSingleton<MessageProcessingService>();
+            
+            // MessageProcessingService - needs IFixEngine injected
+            services.AddSingleton<MessageProcessingService>(sp =>
+            {
+                var fixEngine = sp.GetRequiredService<IFixEngine>();
+                var messageLogger = sp.GetRequiredService<IMessageLogger>();
+                var logger = sp.GetRequiredService<ILogger<MessageProcessingService>>();
+                return new MessageProcessingService(fixEngine, messageLogger, logger);
+            });
 
             // Background Services
             services.AddHostedService<AckPollingService>();
 
             // ViewModels
-            services.AddTransient<MainViewModel>();
             services.AddTransient<SessionListViewModel>();
+            services.AddTransient<MainViewModel>();
 
             // Views
             services.AddTransient<MainWindow>(sp =>

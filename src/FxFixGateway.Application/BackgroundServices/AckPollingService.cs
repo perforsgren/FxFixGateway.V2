@@ -21,6 +21,10 @@ namespace FxFixGateway.Application.BackgroundServices
 
         private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(1);
 
+        // TODO: Aktivera ACK polling när Trades-tabellen är skapad i databasen
+        // Sätt till true när tabellen finns och systemet är redo för ACK-hantering
+        private const bool ENABLE_ACK_POLLING = false;
+
         public AckPollingService(
             IAckQueueRepository ackQueueRepository,
             IFixEngine fixEngine,
@@ -33,6 +37,13 @@ namespace FxFixGateway.Application.BackgroundServices
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
+            // TODO: Ta bort denna check när Trades-tabellen är skapad
+            if (!ENABLE_ACK_POLLING)
+            {
+                _logger.LogWarning("ACK Polling Service is DISABLED. Set ENABLE_ACK_POLLING = true when Trades table exists.");
+                return;
+            }
+
             _logger.LogInformation("ACK Polling Service started");
 
             // Vänta lite innan vi börjar (låt andra services starta först)
@@ -64,7 +75,6 @@ namespace FxFixGateway.Application.BackgroundServices
 
             if (ackList.Count == 0)
             {
-                // Ingen pending ACKs, logga inte (för att undvika spam)
                 return;
             }
 
@@ -86,13 +96,10 @@ namespace FxFixGateway.Application.BackgroundServices
                 _logger.LogDebug("Processing ACK for Trade {TradeId}: {TradeReportId} → {InternTradeId}",
                     ack.TradeId, ack.TradeReportId, ack.InternTradeId);
 
-                // Bygg AR-meddelande (TradeCaptureReportAck)
                 var arMessage = BuildAckMessage(ack);
 
-                // Skicka via FixEngine
                 await _fixEngine.SendMessageAsync(ack.SessionKey, arMessage);
 
-                // Uppdatera status i DB
                 await _ackQueueRepository.UpdateAckStatusAsync(
                     ack.TradeId,
                     AckStatus.Sent,
@@ -105,7 +112,6 @@ namespace FxFixGateway.Application.BackgroundServices
             {
                 _logger.LogError(ex, "Failed to send ACK for Trade {TradeId}", ack.TradeId);
 
-                // Uppdatera status till Failed
                 await _ackQueueRepository.UpdateAckStatusAsync(
                     ack.TradeId,
                     AckStatus.Failed,
@@ -113,36 +119,27 @@ namespace FxFixGateway.Application.BackgroundServices
             }
         }
 
-        /// <summary>
-        /// Bygger ett AR-meddelande (TradeCaptureReportAck) i FIX-format.
-        /// 
-        /// TODO: Detta är en förenklad version. Du kan integrera med
-        /// QuickFIX message builders senare för mer robust implementation.
-        /// </summary>
         private string BuildAckMessage(Domain.ValueObjects.PendingAck ack)
         {
-            // Förenklad FIX AR-meddelande
-            // I verkligheten skulle du använda QuickFIX message builder
-
+            const char SOH = '\x01';
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HH:mm:ss.fff");
 
-            // FIX 4.4 TradeCaptureReportAck (MsgType=AR)
-            var fixMessage = $"8=FIX.4.4|9=XXX|35=AR|" +
-                           $"571={ack.TradeReportId}|" +  // TradeReportID
-                           $"939=0|" +                     // TrdRptStatus (0=Accepted)
-                           $"568=1|" +                     // TradeRequestID
-                           $"828={ack.InternTradeId}|" +   // Custom tag för InternTradeId
-                           $"52={timestamp}|" +
-                           $"10=XXX|";  // Checksum (beräknas senare)
+            // Build AR (TradeCaptureReportAck) message body
+            // Tag 571 = TradeReportID (original AE's TradeReportID)
+            // Tag 939 = TrdRptStatus (0 = Accepted, 1 = Rejected, 2 = Disputed)
+            // Tag 568 = TradeRequestID
+            // Tag 17 = ExecID (our internal trade ID)
+            // Tag 52 = SendingTime
+            var body = $"35=AR{SOH}" +
+                      $"571={ack.TradeReportId}{SOH}" +
+                      $"939=0{SOH}" +
+                      $"568=1{SOH}" +
+                      $"17={ack.InternTradeId}{SOH}" +
+                      $"52={timestamp}{SOH}";
 
-            // OBS: Detta är en stub. Riktiga FIX-meddelanden kräver:
-            // - Korrekt längd (tag 9)
-            // - Korrekt checksum (tag 10)
-            // - SOH-separatorer (inte |)
-            // - Sekvens-nummer
-            // etc.
-
-            return fixMessage;
+            // Note: QuickFIX will add the header (8, 9, 49, 56, 34) and trailer (10) automatically
+            // when we use Message.FromString() in QuickFixEngine.SendMessageAsync()
+            return body;
         }
     }
 }
