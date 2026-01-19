@@ -6,6 +6,8 @@ using FxTradeHub.Domain.Entities;
 using FxTradeHub.Domain.Services;
 using FxTradeHub.Domain.Parsing;
 using QF = global::QuickFix;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace FxFixGateway.Infrastructure.QuickFix
 {
@@ -188,9 +190,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
         }
 
-        /// <summary>
-        /// Called when receiving application messages (TradeCaptureReport, ExecutionReport, etc.)
-        /// </summary>
         public void FromApp(QF.Message message, QF.SessionID sessionId)
         {
             var sessionKey = GetSessionKey(sessionId);
@@ -211,15 +210,24 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 try
                 {
+                    var venueCode = GetVenueCode(sessionKey);
+
                     var entity = new MessageIn
                     {
                         SourceType = "FIX",
-                        SourceVenueCode = GetVenueCode(sessionKey),
+                        SourceVenueCode = venueCode,
                         SessionKey = sessionKey,
                         RawPayload = rawMessage,
+                        RawPayloadHash = ComputeSHA256Hash(rawMessage),
                         FixMsgType = msgType,
                         ReceivedUtc = DateTime.UtcNow
                     };
+
+                    // Venue-specific enrichment (minimal for now)
+                    if (venueCode == "VOLBROKER")
+                    {
+                        EnrichVolbrokerAE(entity, message);
+                    }
 
                     var messageInId = _messageInService.InsertMessage(entity);
 
@@ -240,6 +248,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
         }
 
+
         private string GetVenueCode(string sessionKey)
         {
             return sessionKey switch
@@ -249,6 +258,42 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _ => sessionKey // fallback to SessionKey
             };
         }
+
+        private string ComputeSHA256Hash(string payload)
+        {
+            if (string.IsNullOrEmpty(payload))
+                return string.Empty;
+
+            using (var sha = SHA256.Create())
+            {
+                var bytes = Encoding.UTF8.GetBytes(payload);
+                var hashBytes = sha.ComputeHash(bytes);
+                return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
+            }
+        }
+
+        private void EnrichVolbrokerAE(MessageIn entity, QF.Message message)
+        {
+            // KRITISKT för ACK: SourceMessageKey = 818 (SecondaryTradeReportID) → fallback 571 (TradeReportID)
+            entity.SourceMessageKey = TryGetField(message, 818) ?? TryGetField(message, 571);
+            entity.ExternalTradeKey = TryGetField(message, 818);
+
+            // Enrichment fields (nice-to-have för debugging, kan skippa om du vill)
+            entity.InstrumentCode = TryGetField(message, 55); // Symbol
+        }
+
+        private string? TryGetField(QF.Message message, int tag)
+        {
+            try
+            {
+                return message.IsSetField(tag) ? message.GetString(tag) : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
 
 
         private string? GetSessionKey(QF.SessionID sessionId)

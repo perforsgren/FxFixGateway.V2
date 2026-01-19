@@ -182,16 +182,21 @@ namespace FxFixGateway.UI
                 return new MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
             });
 
-            // Infrastructure - FIX Engine (inject FxTradeHub services)
+            // Infrastructure - FIX Engine
             services.AddSingleton<IFixEngine>(sp =>
             {
                 var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
                 var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                var messageInService = sp.GetRequiredService<IMessageInService>();
-                var orchestrator = sp.GetRequiredService<IMessageInParserOrchestrator>();
+
+                // FxTradeHub services
+                var messageInService = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
+                var orchestrator = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
 
                 return new QuickFixEngine(logger, dataDictPath, messageInService, orchestrator);
             });
+
+            // TradeCaptureReportAck builder (for ACK sending)
+            services.AddSingleton<TradeCaptureReportAckBuilder>();
 
             // Application Services
             services.AddSingleton<SessionManagementService>();
