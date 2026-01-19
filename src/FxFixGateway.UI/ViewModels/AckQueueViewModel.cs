@@ -187,18 +187,21 @@ namespace FxFixGateway.UI.ViewModels
             }
         }
 
-        private string BuildAckMessage(AckEntryViewModel ack)
+        private string BuildAckMessage(Domain.ValueObjects.PendingAck ack)
         {
+            const char SOH = '\x01';
             var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HH:mm:ss.fff");
 
-            return $"8=FIX.4.4|9=XXX|35=AR|" +
-                   $"571={ack.TradeReportId}|" +
-                   $"939=0|" +
-                   $"568=1|" +
-                   $"828={ack.InternTradeId}|" +
-                   $"52={timestamp}|" +
-                   $"10=XXX|";
+            var body = $"35=AR{SOH}" +
+                      $"571={ack.TradeReportId}{SOH}" +
+                      $"939=0{SOH}" +
+                      $"568=1{SOH}" +
+                      $"17={ack.InternTradeId}{SOH}" +
+                      $"52={timestamp}{SOH}";
+
+            return body;
         }
+
     }
 
     /// <summary>

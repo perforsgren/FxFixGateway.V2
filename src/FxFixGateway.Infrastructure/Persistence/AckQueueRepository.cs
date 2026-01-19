@@ -27,20 +27,19 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             // Ändra från fix_config_dev.Trades till trade_stp.tradesystemlink + joins
             var sql = @"
-                SELECT 
-                    tsl.StpTradeId,
-                    tsl.AckInternalTradeId,
-                    m.SessionKey,
-                    m.SourceMessageKey AS TradeReportId
-                FROM tradesystemlink tsl
-                JOIN trade t ON t.StpTradeId = tsl.StpTradeId
-                JOIN messagein m ON m.MessageInId = t.MessageInId
-                WHERE tsl.SystemCode = 'FIX_ACK'
-                AND tsl.Status = 'READY_TO_ACK'
-                AND tsl.AckInternalTradeId IS NOT NULL
-                AND tsl.IsDeleted = 0
-                ORDER BY tsl.LastStatusUtc ASC
-                LIMIT @MaxCount;";
+        SELECT
+            tsl.StpTradeId AS TradeId,
+            m.SessionKey,
+            m.SourceMessageKey AS TradeReportId,
+            tsl.AckInternalTradeId AS InternTradeId,
+            tsl.CreatedTime AS CreatedUtc
+        FROM tradesystemlink tsl
+        INNER JOIN trade t ON t.StpTradeId = tsl.StpTradeId
+        INNER JOIN messagein m ON m.MessageInId = t.MessageInId
+        WHERE tsl.SystemCode = 'FIX_ACK'
+          AND tsl.Status = 'READY_TO_ACK'
+        ORDER BY tsl.CreatedTime ASC
+        LIMIT @MaxCount;";
 
             try
             {
