@@ -84,13 +84,13 @@
                   HorizontalScrollBarVisibility="Auto">
 
             <DataGrid.Columns>
-                <!-- Time: 110px -->
+                <!-- Time -->
                 <DataGridTextColumn Header="Time" 
                                     Binding="{Binding TimeFormatted}" 
-                                    Width="110"/>
+                                    Width="120"/>
 
-                <!-- Direction: 90px -->
-                <DataGridTemplateColumn Header="Direction" Width="90">
+                <!-- Direction -->
+                <DataGridTemplateColumn Header="Direction" Width="100">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Border Padding="8,3" 
@@ -116,10 +116,10 @@
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
 
-                <!-- Type: 70px -->
+                <!-- Type -->
                 <DataGridTextColumn Header="Type" 
                                     Binding="{Binding MsgType}" 
-                                    Width="70">
+                                    Width="100">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
                             <Setter Property="HorizontalAlignment" Value="Center"/>
@@ -128,10 +128,11 @@
                     </DataGridTextColumn.ElementStyle>
                 </DataGridTextColumn>
 
-                <!-- Summary: fills remaining space -->
+                <!-- Summary -->
                 <DataGridTextColumn Header="Summary" 
                                     Binding="{Binding Summary}" 
-                                    Width="*"/>
+                                    Width="*"
+                                    MinWidth="150"/>
             </DataGrid.Columns>
 
             <DataGrid.RowStyle>

@@ -25,25 +25,23 @@ namespace FxFixGateway.Infrastructure.Persistence
         {
             var result = new List<PendingAck>();
 
-            // Ändra från fix_config_dev.Trades till trade_stp.tradesystemlink + joins
             var sql = @"
         SELECT
             tsl.StpTradeId AS TradeId,
             m.SessionKey,
             m.SourceMessageKey AS TradeReportId,
             tsl.AckInternalTradeId AS InternTradeId,
-            tsl.CreatedTime AS CreatedUtc
+            tsl.CreatedUtc
         FROM tradesystemlink tsl
         INNER JOIN trade t ON t.StpTradeId = tsl.StpTradeId
         INNER JOIN messagein m ON m.MessageInId = t.MessageInId
         WHERE tsl.SystemCode = 'FIX_ACK'
           AND tsl.Status = 'READY_TO_ACK'
-        ORDER BY tsl.CreatedTime ASC
+        ORDER BY tsl.CreatedUtc ASC
         LIMIT @MaxCount;";
 
             try
             {
-                // Byt connectionString till STP-databasen
                 var stpConnectionString = _connectionString.Replace("fix_config_dev", "trade_stp");
 
                 await using var connection = new MySqlConnection(stpConnectionString);
@@ -57,13 +55,15 @@ namespace FxFixGateway.Infrastructure.Persistence
                 while (await reader.ReadAsync())
                 {
                     var ack = new PendingAck(
-                        tradeId: reader.GetInt64("StpTradeId"),
+                        tradeId: reader.GetInt64("TradeId"),
                         sessionKey: reader.GetString("SessionKey"),
                         tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
                             ? string.Empty
                             : reader.GetString("TradeReportId"),
-                        internTradeId: reader.GetString("AckInternalTradeId"),
-                        createdUtc: DateTime.UtcNow // Vi har inte CreatedUtc i tradesystemlink, kan lägga till senare
+                        internTradeId: reader.IsDBNull(reader.GetOrdinal("InternTradeId"))
+                            ? string.Empty
+                            : reader.GetString("InternTradeId"),
+                        createdUtc: reader.GetDateTime("CreatedUtc")
                     );
                     result.Add(ack);
                 }
@@ -90,8 +90,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                     tsl.StpTradeId,
                     tsl.AckInternalTradeId,
                     tsl.Status,
-                    tsl.LastStatusUtc AS CreatedUtc,
-                    tsl.SentUtc,
+                    tsl.CreatedUtc,
+                    tsl.LastStatusUtc,
                     m.SessionKey,
                     m.SourceMessageKey AS TradeReportId
                 FROM tradesystemlink tsl
@@ -102,7 +102,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             if (statusFilter.HasValue)
             {
-                sql += " AND tsl.Status = @Status";
+                var dbStatus = statusFilter.Value switch
+                {
+                    AckStatus.Pending => "READY_TO_ACK",
+                    AckStatus.Sent => "ACK_SENT",
+                    AckStatus.Failed => "ACK_ERROR",
+                    _ => "READY_TO_ACK"
+                };
+                sql += $" AND tsl.Status = '{dbStatus}'";
             }
 
             sql += " ORDER BY tsl.LastStatusUtc DESC LIMIT @MaxCount;";
@@ -118,17 +125,25 @@ namespace FxFixGateway.Infrastructure.Persistence
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
 
-                if (statusFilter.HasValue)
-                {
-                    command.Parameters.AddWithValue("@Status", statusFilter.Value.ToString());
-                }
-
                 await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
                     var statusStr = reader.GetString("Status");
-                    var status = Enum.TryParse<AckStatus>(statusStr, out var parsed) ? parsed : AckStatus.Pending;
+                    var status = statusStr switch
+                    {
+                        "READY_TO_ACK" => AckStatus.Pending,
+                        "ACK_SENT" => AckStatus.Sent,
+                        "ACK_ERROR" => AckStatus.Failed,
+                        _ => AckStatus.Pending
+                    };
+
+                    // SentUtc = LastStatusUtc om status är ACK_SENT, annars null
+                    DateTime? sentUtc = null;
+                    if (status == AckStatus.Sent && !reader.IsDBNull(reader.GetOrdinal("LastStatusUtc")))
+                    {
+                        sentUtc = reader.GetDateTime("LastStatusUtc");
+                    }
 
                     var entry = new AckEntry(
                         tradeId: reader.GetInt64("StpTradeId"),
@@ -141,9 +156,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                             : reader.GetString("AckInternalTradeId"),
                         status: status,
                         createdUtc: reader.GetDateTime("CreatedUtc"),
-                        sentUtc: reader.IsDBNull(reader.GetOrdinal("SentUtc"))
-                            ? null
-                            : reader.GetDateTime("SentUtc")
+                        sentUtc: sentUtc
                     );
                     result.Add(entry);
                 }
@@ -162,9 +175,17 @@ namespace FxFixGateway.Infrastructure.Persistence
 
         public async Task UpdateAckStatusAsync(long tradeId, AckStatus status, DateTime? sentUtc)
         {
+            var dbStatus = status switch
+            {
+                AckStatus.Pending => "READY_TO_ACK",
+                AckStatus.Sent => "ACK_SENT",
+                AckStatus.Failed => "ACK_ERROR",
+                _ => "READY_TO_ACK"
+            };
+
             var sql = @"
                 UPDATE tradesystemlink
-                SET Status = @Status, SentUtc = @SentUtc, LastStatusUtc = @LastStatusUtc
+                SET Status = @Status, LastStatusUtc = @LastStatusUtc
                 WHERE StpTradeId = @TradeId
                 AND SystemCode = 'FIX_ACK';";
 
@@ -177,9 +198,8 @@ namespace FxFixGateway.Infrastructure.Persistence
 
                 await using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@TradeId", tradeId);
-                command.Parameters.AddWithValue("@Status", status.ToString());
-                command.Parameters.AddWithValue("@SentUtc", sentUtc.HasValue ? sentUtc.Value : DBNull.Value);
-                command.Parameters.AddWithValue("@LastStatusUtc", DateTime.UtcNow);
+                command.Parameters.AddWithValue("@Status", dbStatus);
+                command.Parameters.AddWithValue("@LastStatusUtc", sentUtc ?? DateTime.UtcNow);
 
                 await command.ExecuteNonQueryAsync();
             }
@@ -229,7 +249,7 @@ namespace FxFixGateway.Infrastructure.Persistence
             var sql = @"
                 SELECT 
                     SUM(CASE WHEN tsl.Status = 'READY_TO_ACK' THEN 1 ELSE 0 END) AS PendingCount,
-                    SUM(CASE WHEN tsl.Status = 'ACK_SENT' AND DATE(tsl.SentUtc) = CURDATE() THEN 1 ELSE 0 END) AS SentTodayCount,
+                    SUM(CASE WHEN tsl.Status = 'ACK_SENT' AND DATE(tsl.LastStatusUtc) = CURDATE() THEN 1 ELSE 0 END) AS SentTodayCount,
                     SUM(CASE WHEN tsl.Status = 'ACK_ERROR' THEN 1 ELSE 0 END) AS FailedCount
                 FROM tradesystemlink tsl
                 JOIN trade t ON t.StpTradeId = tsl.StpTradeId
@@ -264,6 +284,43 @@ namespace FxFixGateway.Infrastructure.Persistence
             }
 
             return AckStatistics.Empty;
+        }
+
+        public async Task InsertWorkflowEventAsync(long stpTradeId, string systemCode, string eventType, string? details = null)
+        {
+            var sql = @"
+                INSERT INTO tradeworkflowevent 
+                (StpTradeId, TimestampUtc, EventType, SystemCode, UserId, Details)
+                VALUES
+                (@StpTradeId, @TimestampUtc, @EventType, @SystemCode, @UserId, @Details);";
+
+            try
+            {
+                var stpConnectionString = _connectionString.Replace("fix_config_dev", "trade_stp");
+
+                await using var connection = new MySqlConnection(stpConnectionString);
+                await connection.OpenAsync();
+
+                await using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@StpTradeId", stpTradeId);
+                command.Parameters.AddWithValue("@TimestampUtc", DateTime.UtcNow);
+                command.Parameters.AddWithValue("@EventType", eventType);
+                command.Parameters.AddWithValue("@SystemCode", systemCode);
+                command.Parameters.AddWithValue("@UserId", "FIX_GATEWAY");  // Identifierar att gateway skrev denna event
+                command.Parameters.AddWithValue("@Details", details ?? (object)DBNull.Value);
+
+                await command.ExecuteNonQueryAsync();
+
+                System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] Workflow event: {eventType} for trade {stpTradeId}");
+            }
+            catch (MySqlException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] InsertWorkflowEventAsync error: {ex.Number} - {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] Unexpected error: {ex.Message}");
+            }
         }
     }
 }

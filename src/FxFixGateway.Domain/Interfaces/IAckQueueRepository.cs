@@ -35,5 +35,10 @@ namespace FxFixGateway.Domain.Interfaces
         /// Hämtar statistik för ACKs (pending, sent today, failed).
         /// </summary>
         Task<AckStatistics> GetStatisticsAsync(string sessionKey);
+
+        /// <summary>
+        /// Skriver ett workflow event till tradeworkflowevent-tabellen.
+        /// </summary>
+        Task InsertWorkflowEventAsync(long stpTradeId, string systemCode, string eventType, string? details = null);
     }
 }

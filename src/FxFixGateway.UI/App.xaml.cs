@@ -195,9 +195,6 @@ namespace FxFixGateway.UI
                 return new QuickFixEngine(logger, dataDictPath, messageInService, orchestrator);
             });
 
-            // TradeCaptureReportAck builder (for ACK sending)
-            services.AddSingleton<TradeCaptureReportAckBuilder>();
-
             // Application Services
             services.AddSingleton<SessionManagementService>();
 

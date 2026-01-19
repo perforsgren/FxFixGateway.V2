@@ -296,10 +296,7 @@
 
             <!-- ACKs Tab -->
             <TabItem Header="ACKs">
-                <TextBlock Text="Pending ACKs will be displayed here" 
-                           Margin="16" 
-                           FontStyle="Italic" 
-                           Foreground="Gray"/>
+                <views:AckQueueView DataContext="{Binding AckQueue}"/>
             </TabItem>
         </TabControl>
     </Grid>

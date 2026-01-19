@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FxFixGateway.Domain.Enums;
@@ -11,11 +12,13 @@ using FxFixGateway.Domain.ValueObjects;
 
 namespace FxFixGateway.UI.ViewModels
 {
-    public partial class AckQueueViewModel : ObservableObject
+    public partial class AckQueueViewModel : ObservableObject, IDisposable
     {
         private readonly IAckQueueRepository _ackQueueRepository;
         private readonly IFixEngine _fixEngine;
+        private readonly DispatcherTimer _refreshTimer;
         private string? _currentSessionKey;
+        private bool _disposed;
 
         [ObservableProperty]
         private ObservableCollection<AckEntryViewModel> _acks = new();
@@ -47,6 +50,13 @@ namespace FxFixGateway.UI.ViewModels
         {
             _ackQueueRepository = ackQueueRepository ?? throw new ArgumentNullException(nameof(ackQueueRepository));
             _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
+
+            // Auto-refresh timer (every 5 seconds)
+            _refreshTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(5)
+            };
+            _refreshTimer.Tick += async (s, e) => await RefreshStatisticsAsync();
         }
 
         public async Task LoadAcksAsync(string sessionKey)
@@ -54,6 +64,7 @@ namespace FxFixGateway.UI.ViewModels
             if (string.IsNullOrEmpty(sessionKey))
             {
                 Acks.Clear();
+                _refreshTimer.Stop();
                 return;
             }
 
@@ -62,29 +73,10 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 IsLoading = true;
+                await LoadDataAsync();
 
-                // Hämta statistik
-                var stats = await _ackQueueRepository.GetStatisticsAsync(sessionKey);
-                PendingCount = stats.PendingCount;
-                SentTodayCount = stats.SentTodayCount;
-                FailedCount = stats.FailedCount;
-
-                // Hämta ACKs med filter
-                AckStatus? statusFilter = SelectedFilter switch
-                {
-                    "Pending" => AckStatus.Pending,
-                    "Sent" => AckStatus.Sent,
-                    "Failed" => AckStatus.Failed,
-                    _ => null
-                };
-
-                var entries = await _ackQueueRepository.GetAcksBySessionAsync(sessionKey, statusFilter, 200);
-
-                Acks.Clear();
-                foreach (var entry in entries)
-                {
-                    Acks.Add(new AckEntryViewModel(entry));
-                }
+                // Start auto-refresh
+                _refreshTimer.Start();
             }
             catch (Exception ex)
             {
@@ -96,11 +88,68 @@ namespace FxFixGateway.UI.ViewModels
             }
         }
 
+        private async Task LoadDataAsync()
+        {
+            if (string.IsNullOrEmpty(_currentSessionKey)) return;
+
+            // Hämta statistik
+            var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
+            PendingCount = stats.PendingCount;
+            SentTodayCount = stats.SentTodayCount;
+            FailedCount = stats.FailedCount;
+
+            // Hämta ACKs med filter
+            AckStatus? statusFilter = SelectedFilter switch
+            {
+                "Pending" => AckStatus.Pending,
+                "Sent" => AckStatus.Sent,
+                "Failed" => AckStatus.Failed,
+                _ => null
+            };
+
+            var entries = await _ackQueueRepository.GetAcksBySessionAsync(_currentSessionKey, statusFilter, 200);
+
+            Acks.Clear();
+            foreach (var entry in entries)
+            {
+                Acks.Add(new AckEntryViewModel(entry));
+            }
+        }
+
+        private async Task RefreshStatisticsAsync()
+        {
+            if (string.IsNullOrEmpty(_currentSessionKey) || _disposed) return;
+
+            try
+            {
+                var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
+
+                // Only update on UI thread
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    var oldPending = PendingCount;
+                    PendingCount = stats.PendingCount;
+                    SentTodayCount = stats.SentTodayCount;
+                    FailedCount = stats.FailedCount;
+
+                    // If pending count changed, refresh the list too
+                    if (oldPending != PendingCount)
+                    {
+                        _ = LoadDataAsync();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] RefreshStatisticsAsync error: {ex.Message}");
+            }
+        }
+
         partial void OnSelectedFilterChanged(string value)
         {
             if (!string.IsNullOrEmpty(_currentSessionKey))
             {
-                _ = LoadAcksAsync(_currentSessionKey);
+                _ = LoadDataAsync();
             }
         }
 
@@ -109,7 +158,9 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (!string.IsNullOrEmpty(_currentSessionKey))
             {
-                await LoadAcksAsync(_currentSessionKey);
+                IsLoading = true;
+                await LoadDataAsync();
+                IsLoading = false;
             }
         }
 
@@ -121,14 +172,14 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 var failedAcks = Acks.Where(a => a.Status == AckStatus.Failed).ToList();
-                
+
                 foreach (var ack in failedAcks)
                 {
                     await _ackQueueRepository.UpdateAckStatusAsync(ack.TradeId, AckStatus.Pending, null);
                 }
 
                 MessageBox.Show($"Reset {failedAcks.Count} failed ACKs to pending.", "Retry Failed", MessageBoxButton.OK, MessageBoxImage.Information);
-                
+
                 await RefreshAsync();
             }
             catch (Exception ex)
@@ -150,6 +201,13 @@ namespace FxFixGateway.UI.ViewModels
 
                 // Uppdatera status
                 await _ackQueueRepository.UpdateAckStatusAsync(SelectedAck.TradeId, AckStatus.Sent, DateTime.UtcNow);
+
+                // Skriv workflow event
+                await _ackQueueRepository.InsertWorkflowEventAsync(
+                    SelectedAck.TradeId,
+                    "FIX_ACK",
+                    "FIX_ACK_SENT",
+                    $"FIX acknowledgment sent (manual)\nTradeReportID: {SelectedAck.TradeReportId}\nMX3 trade ID: {SelectedAck.InternTradeId}");
 
                 MessageBox.Show($"ACK sent for {SelectedAck.TradeReportId}", "Success", MessageBoxButton.OK, MessageBoxImage.Information);
 
@@ -187,21 +245,39 @@ namespace FxFixGateway.UI.ViewModels
             }
         }
 
-        private string BuildAckMessage(Domain.ValueObjects.PendingAck ack)
+        private string BuildAckMessage(AckEntryViewModel ack)
         {
             const char SOH = '\x01';
-            var timestamp = DateTime.UtcNow.ToString("yyyyMMdd-HH:mm:ss.fff");
+            var body = new System.Text.StringBuilder();
 
-            var body = $"35=AR{SOH}" +
-                      $"571={ack.TradeReportId}{SOH}" +
-                      $"939=0{SOH}" +
-                      $"568=1{SOH}" +
-                      $"17={ack.InternTradeId}{SOH}" +
-                      $"52={timestamp}{SOH}";
+            body.Append($"35=AR{SOH}");
+            body.Append($"571={ack.TradeReportId}{SOH}");
+            body.Append($"939=0{SOH}");
 
-            return body;
+            if (!string.IsNullOrEmpty(ack.InternTradeId))
+            {
+                body.Append($"818={ack.InternTradeId}{SOH}");
+            }
+
+            var bodyStr = body.ToString();
+            var header = $"8=FIX.4.4{SOH}9={bodyStr.Length}{SOH}";
+            var messageWithoutChecksum = header + bodyStr;
+
+            var sum = 0;
+            foreach (var c in messageWithoutChecksum)
+            {
+                sum += (byte)c;
+            }
+            var checksum = sum % 256;
+
+            return $"{messageWithoutChecksum}10={checksum:D3}{SOH}";
         }
 
+        public void Dispose()
+        {
+            _disposed = true;
+            _refreshTimer.Stop();
+        }
     }
 
     /// <summary>
@@ -245,5 +321,11 @@ namespace FxFixGateway.UI.ViewModels
                 return $"waiting {(int)elapsed.TotalSeconds}s";
             }
         }
+
+        public string TimeFormatted => CreatedUtc.ToString("HH:mm:ss");
+        public string DirectionText => SentUtc.HasValue ? "OUT" : "IN";
+        public string MsgType => "ACK"; // Assuming the message type is ACK for all entries
+
+        public string Summary => $"TradeReportID: {TradeReportId}, Status: {StatusText}";
     }
 }

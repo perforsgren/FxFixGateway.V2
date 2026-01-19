@@ -7,7 +7,7 @@
              xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
              mc:Ignorable="d" 
              d:DataContext="{d:DesignInstance Type=vm:AckQueueViewModel}"
-             d:DesignHeight="500" d:DesignWidth="700">
+             d:DesignHeight="500" d:DesignWidth="800">
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
@@ -123,7 +123,7 @@
 
             <DataGrid.Columns>
                 <!-- Status -->
-                <DataGridTemplateColumn Header="Status" Width="80">
+                <DataGridTemplateColumn Header="Status" Width="90">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
                             <Border Padding="6,3" 
@@ -141,7 +141,7 @@
                 <!-- TradeReportID -->
                 <DataGridTextColumn Header="TradeReportID" 
                                     Binding="{Binding TradeReportId}" 
-                                    Width="150"/>
+                                    Width="140"/>
 
                 <!-- InternID -->
                 <DataGridTextColumn Header="InternID" 
@@ -151,12 +151,12 @@
                 <!-- Created -->
                 <DataGridTextColumn Header="Created" 
                                     Binding="{Binding CreatedFormatted}" 
-                                    Width="80"/>
+                                    Width="100"/>
 
                 <!-- Sent -->
                 <DataGridTextColumn Header="Sent" 
                                     Binding="{Binding SentFormatted}" 
-                                    Width="80"/>
+                                    Width="100"/>
             </DataGrid.Columns>
 
             <DataGrid.RowStyle>
