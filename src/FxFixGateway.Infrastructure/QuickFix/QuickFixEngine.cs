@@ -65,7 +65,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
             _settings = builder.Build(configList);
 
-            // **NYtt: Starta SSL tunnlar INNAN QuickFIX initieras**
+            // Starta SSL tunnlar INNAN QuickFIX initieras
             foreach (var config in configList)
             {
                 if (config.UseSSLTunnel && !string.IsNullOrEmpty(config.SslRemoteHost))
@@ -74,9 +74,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         config.SessionKey, config.SslLocalPort, config.SslRemoteHost, config.SslRemotePort);
 
                     var tunnel = new SSLTunnelProxy(
-                        localPort: config.SslLocalPort.Value,
+                        sessionKey: config.SessionKey,      // <-- NYTT! Detta saknades
                         remoteHost: config.SslRemoteHost,
                         remotePort: config.SslRemotePort.Value,
+                        localPort: config.SslLocalPort.Value,
                         sniHost: config.SslSniHost,
                         logger: _logger);
 
@@ -139,6 +140,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _logger?.LogInformation("QuickFIX engine initialized successfully");
             return Task.CompletedTask;
         }
+
 
 
 
