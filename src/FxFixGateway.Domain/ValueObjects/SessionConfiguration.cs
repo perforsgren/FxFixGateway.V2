@@ -47,6 +47,13 @@ namespace FxFixGateway.Domain.ValueObjects
         public string UpdatedBy { get; }
         public string Notes { get; }
 
+        // SSL Tunnel Configuration (för venues som kräver SSL tunnel)
+        public bool UseSSLTunnel { get; }
+        public string SslRemoteHost { get; }
+        public int? SslRemotePort { get; }
+        public int? SslLocalPort { get; }
+        public string SslSniHost { get; }
+
         public SessionConfiguration(
             int connectionId,
             string sessionKey,
@@ -74,7 +81,12 @@ namespace FxFixGateway.Domain.ValueObjects
             DateTime createdUtc,
             DateTime updatedUtc,
             string updatedBy,
-            string notes)
+            string notes,
+            bool useSSLTunnel = false,
+            string sslRemoteHost = null,
+            int? sslRemotePort = null,
+            int? sslLocalPort = null,
+            string sslSniHost = null)
         {
             // Validation
             if (string.IsNullOrWhiteSpace(sessionKey))
@@ -116,6 +128,11 @@ namespace FxFixGateway.Domain.ValueObjects
             UpdatedUtc = updatedUtc;
             UpdatedBy = updatedBy ?? string.Empty;
             Notes = notes ?? string.Empty;
+            UseSSLTunnel = useSSLTunnel;
+            SslRemoteHost = sslRemoteHost ?? string.Empty;
+            SslRemotePort = sslRemotePort;
+            SslLocalPort = sslLocalPort;
+            SslSniHost = sslSniHost ?? string.Empty;
         }
 
         // With methods for creating modified copies
@@ -175,5 +192,17 @@ namespace FxFixGateway.Domain.ValueObjects
         {
             return !Equals(left, right);
         }
+
+        public SessionConfiguration WithSSLTunnel(bool useSSLTunnel, string sslRemoteHost, int? sslRemotePort, int? sslLocalPort, string sslSniHost)
+        {
+            return new SessionConfiguration(
+                ConnectionId, SessionKey, VenueCode, ConnectionType, Description,
+                FixVersion, Host, Port, SenderCompId, TargetCompId, HeartBtIntSec,
+                UseSsl, SslServerName, LogonUsername, Password, AckSupported, AckMode,
+                ReconnectIntervalSeconds, StartTime, EndTime, UseDataDictionary,
+                DataDictionaryFile, IsEnabled, CreatedUtc, DateTime.UtcNow, UpdatedBy, Notes,
+                useSSLTunnel, sslRemoteHost, sslRemotePort, sslLocalPort, sslSniHost);
+        }
+
     }
 }

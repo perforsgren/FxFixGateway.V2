@@ -22,6 +22,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private readonly IMessageInService? _messageInService;
         private readonly IMessageInParserOrchestrator? _orchestrator;
 
+        private readonly Dictionary<string, SSLTunnelProxy> _sslTunnels = new();
+
         private QF.Transport.SocketInitiator? _initiator;
         private QuickFixApplication? _application;
         private QF.SessionSettings? _settings;

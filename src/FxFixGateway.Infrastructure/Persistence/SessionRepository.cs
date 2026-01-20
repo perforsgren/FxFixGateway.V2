@@ -48,7 +48,12 @@ namespace FxFixGateway.Infrastructure.Persistence
                     CreatedUtc,
                     UpdatedUtc,
                     UpdatedBy,
-                    Notes
+                    Notes,
+                    SslRemoteHost,
+                    SslRemotePort,
+                    SslLocalPort,
+                    SslSniHost,
+                    UseSSLTunnel
                 FROM fix_connection_config
                 ORDER BY SessionKey";
 
@@ -100,7 +105,12 @@ namespace FxFixGateway.Infrastructure.Persistence
                     CreatedUtc,
                     UpdatedUtc,
                     UpdatedBy,
-                    Notes
+                    Notes,
+                    SslRemoteHost,
+                    SslRemotePort,
+                    SslLocalPort,
+                    SslSniHost,
+                    UseSSLTunnel
                 FROM fix_connection_config
                 WHERE SessionKey = @SessionKey";
 
@@ -230,7 +240,12 @@ namespace FxFixGateway.Infrastructure.Persistence
                 createdUtc: reader.GetDateTime(reader.GetOrdinal("CreatedUtc")),
                 updatedUtc: reader.GetDateTime(reader.GetOrdinal("UpdatedUtc")),
                 updatedBy: reader.IsDBNull(reader.GetOrdinal("UpdatedBy")) ? string.Empty : reader.GetString(reader.GetOrdinal("UpdatedBy")),
-                notes: reader.IsDBNull(reader.GetOrdinal("Notes")) ? string.Empty : reader.GetString(reader.GetOrdinal("Notes"))
+                notes: reader.IsDBNull(reader.GetOrdinal("Notes")) ? string.Empty : reader.GetString(reader.GetOrdinal("Notes")),
+                useSSLTunnel: reader.IsDBNull(reader.GetOrdinal("UseSSLTunnel")) ? false : reader.GetBoolean(reader.GetOrdinal("UseSSLTunnel")),
+                sslRemoteHost: reader.IsDBNull(reader.GetOrdinal("SslRemoteHost")) ? null : reader.GetString(reader.GetOrdinal("SslRemoteHost")),
+                sslRemotePort: reader.IsDBNull(reader.GetOrdinal("SslRemotePort")) ? null : reader.GetInt32(reader.GetOrdinal("SslRemotePort")),
+                sslLocalPort: reader.IsDBNull(reader.GetOrdinal("SslLocalPort")) ? null : reader.GetInt32(reader.GetOrdinal("SslLocalPort")),
+                sslSniHost: reader.IsDBNull(reader.GetOrdinal("SslSniHost")) ? null : reader.GetString(reader.GetOrdinal("SslSniHost"))
             );
         }
 
