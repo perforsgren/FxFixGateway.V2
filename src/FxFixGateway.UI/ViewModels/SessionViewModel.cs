@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Enums;
@@ -18,7 +17,6 @@ namespace FxFixGateway.UI.ViewModels
             _session = session ?? throw new ArgumentNullException(nameof(session));
             _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
 
-            // Lyssna på FIX engine events
             _fixEngine.StatusChanged += OnFixEngineStatusChanged;
             _fixEngine.HeartbeatReceived += OnFixEngineHeartbeatReceived;
             _fixEngine.ErrorOccurred += OnFixEngineErrorOccurred;
@@ -28,7 +26,6 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (e.SessionKey != SessionKey || _disposed) return;
 
-            // Marshal till UI-tråden using BeginInvoke (async) instead of Invoke (sync)
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
             {
                 if (_disposed) return;
@@ -38,7 +35,6 @@ namespace FxFixGateway.UI.ViewModels
                 OnPropertyChanged(nameof(CanStart));
                 OnPropertyChanged(nameof(CanStop));
                 
-                // Also notify about logon/logout times when status changes
                 if (e.NewStatus == SessionStatus.LoggedOn)
                 {
                     OnPropertyChanged(nameof(LastLogonFormatted));
@@ -73,20 +69,44 @@ namespace FxFixGateway.UI.ViewModels
             });
         }
 
-        // Basic Properties
+        // Basic Properties (readonly)
         public string SessionKey => _session.Configuration.SessionKey;
         public string VenueCode => _session.Configuration.VenueCode;
         public string ConnectionType => _session.Configuration.ConnectionType;
         public string Description => _session.Configuration.Description;
-
-        // Connection Properties
-        public string Host => _session.Configuration.Host;
-        public int Port => _session.Configuration.Port;
         public string SenderCompID => _session.Configuration.SenderCompId;
         public string TargetCompID => _session.Configuration.TargetCompId;
         public string BeginString => _session.Configuration.FixVersion;
 
-        // Timing Properties
+        // EDITABLE: Host
+        public string Host
+        {
+            get => _session.Configuration.Host;
+            set
+            {
+                if (_session.Configuration.Host != value)
+                {
+                    _session.UpdateConfiguration(_session.Configuration.WithHost(value));
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        // EDITABLE: Port
+        public int Port
+        {
+            get => _session.Configuration.Port;
+            set
+            {
+                if (_session.Configuration.Port != value)
+                {
+                    _session.UpdateConfiguration(_session.Configuration.WithPort(value));
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        // Timing Properties (readonly)
         public int HeartbeatInterval => _session.Configuration.HeartBtIntSec;
         public int ReconnectInterval => _session.Configuration.ReconnectIntervalSeconds;
         public string StartTimeFormatted => _session.Configuration.StartTime.ToString(@"hh\:mm\:ss");
@@ -103,7 +123,6 @@ namespace FxFixGateway.UI.ViewModels
         // Status Properties
         public SessionStatus Status => _session.Status;
         public string StatusText => Status.ToString();
-        public bool IsEnabled => _session.Configuration.IsEnabled;
         public string LastError => _session.LastError ?? "None";
 
         public string LastLogonFormatted => _session.LastLogonTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
@@ -111,7 +130,22 @@ namespace FxFixGateway.UI.ViewModels
         public string LastHeartbeatFormatted => _session.LastHeartbeatTime?.ToString("yyyy-MM-dd HH:mm:ss") ?? "Never";
         public string LastHeartbeat => _session.LastHeartbeatTime?.ToString("HH:mm:ss") ?? "Never";
 
-        // Timeout Properties
+        // EDITABLE: IsEnabled
+        public bool IsEnabled
+        {
+            get => _session.Configuration.IsEnabled;
+            set
+            {
+                if (_session.Configuration.IsEnabled != value)
+                {
+                    _session.UpdateConfiguration(_session.Configuration.WithEnabled(value));
+                    OnPropertyChanged();
+                    System.Diagnostics.Debug.WriteLine($"[SessionViewModel] IsEnabled changed to {value}");
+                }
+            }
+        }
+
+        // Timeout Properties (readonly)
         public int LogonTimeout => 30;
         public int LogoutTimeout => 5;
         public bool ResetOnLogon => false;
@@ -130,7 +164,7 @@ namespace FxFixGateway.UI.ViewModels
         public bool CanStart => Status == SessionStatus.Stopped || Status == SessionStatus.Error;
         public bool CanStop => Status != SessionStatus.Stopped && Status != SessionStatus.Error;
 
-        // Access to underlying entity for commands
+        // Access to underlying entity
         public FixSession Session => _session;
 
         public void Dispose()

@@ -250,6 +250,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 }
             }
 
+            // Unsubscribe from events to prevent memory leaks
+            if (_application != null)
+            {
+                _application.StatusChanged -= OnStatusChanged;
+                _application.MessageReceived -= OnMessageReceived;
+                _application.MessageSent -= OnMessageSent;
+                _application.HeartbeatReceived -= OnHeartbeatReceived;
+                _application.ErrorOccurred -= OnErrorOccurred;
+            }
+
             _initiator?.Dispose();
             _initiator = null;
             _running = false;

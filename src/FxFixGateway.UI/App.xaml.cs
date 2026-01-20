@@ -158,7 +158,7 @@ namespace FxFixGateway.UI
                 new MessageLogRepository(connectionString));
 
             services.AddSingleton<IAckQueueRepository>(sp =>
-                new AckQueueRepository(connectionString));
+                new AckQueueRepository(stpConnectionString));
 
             // FxTradeHub services
             services.AddSingleton<IMessageInService>(sp =>

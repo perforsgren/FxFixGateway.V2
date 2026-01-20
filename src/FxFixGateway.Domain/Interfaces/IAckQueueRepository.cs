@@ -12,7 +12,7 @@ namespace FxFixGateway.Domain.Interfaces
     public interface IAckQueueRepository
     {
         /// <summary>
-        /// Hämtar alla pending ACKs från databasen.
+        /// Hämtar alla pending ACKs från databasen (READY_TO_ACK only).
         /// </summary>
         Task<IEnumerable<PendingAck>> GetPendingAcksAsync(int maxCount = 100);
 
@@ -25,11 +25,6 @@ namespace FxFixGateway.Domain.Interfaces
         /// Uppdaterar status för en ACK efter att den skickats.
         /// </summary>
         Task UpdateAckStatusAsync(long tradeId, AckStatus status, DateTime? sentUtc);
-
-        /// <summary>
-        /// Räknar antal pending ACKs för en specifik session.
-        /// </summary>
-        Task<int> GetPendingCountAsync(string sessionKey);
 
         /// <summary>
         /// Hämtar statistik för ACKs (pending, sent today, failed).

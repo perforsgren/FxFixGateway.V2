@@ -1,11 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using FxFixGateway.Domain.Enums;
 using FxFixGateway.Domain.Interfaces;
+using FxFixGateway.Domain.Utilities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -22,7 +22,6 @@ namespace FxFixGateway.Application.BackgroundServices
         private readonly ILogger<AckPollingService> _logger;
 
         private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(5);
-        private const char SOH = '\x01';
 
         // Track which sessions are logged on
         private readonly HashSet<string> _loggedOnSessions = new();
@@ -38,6 +37,12 @@ namespace FxFixGateway.Application.BackgroundServices
 
             // Subscribe to session status changes
             _fixEngine.StatusChanged += OnSessionStatusChanged;
+        }
+
+        public override void Dispose()
+        {
+            _fixEngine.StatusChanged -= OnSessionStatusChanged;
+            base.Dispose();
         }
 
         private void OnSessionStatusChanged(object? sender, Domain.Events.SessionStatusChangedEvent e)
@@ -113,7 +118,8 @@ namespace FxFixGateway.Application.BackgroundServices
             {
                 var sessionKey = sessionGroup.Key;
 
-                // CRITICAL: Only send ACKs if session is logged on
+                // First check: Skip entire session group if not logged on (optimization)
+                // NOTE: Session could log off after this check - ProcessSingleAckAsync does a second check
                 if (!IsSessionLoggedOn(sessionKey))
                 {
                     _logger.LogDebug("Skipping {Count} pending ACKs for session {SessionKey} - not logged on",
@@ -144,12 +150,22 @@ namespace FxFixGateway.Application.BackgroundServices
                 return;
             }
 
+            // Validate required fields - InternTradeId (tag 818) is required for a complete AR message
+            if (string.IsNullOrEmpty(ack.InternTradeId))
+            {
+                _logger.LogWarning(
+                    "Skipping ACK for Trade {TradeId} - AckInternalTradeId is null/empty. " +
+                    "Trade may not have been processed by downstream system yet. SessionKey={SessionKey}, TradeReportId={TradeReportId}",
+                    ack.TradeId, ack.SessionKey, ack.TradeReportId);
+                return;
+            }
+
             try
             {
                 _logger.LogDebug("Processing ACK for Trade {TradeId}: {TradeReportId} → {InternTradeId}",
                     ack.TradeId, ack.TradeReportId, ack.InternTradeId);
 
-                var arMessage = BuildTradeCaptureReportAck(ack);
+                var arMessage = FixMessageBuilder.BuildTradeCaptureReportAck(ack.TradeReportId, ack.InternTradeId);
 
                 _logger.LogInformation("Sending AR for Trade {TradeId}: TradeReportID={TradeReportId}, SecondaryTradeReportID={InternTradeId}",
                     ack.TradeId, ack.TradeReportId, ack.InternTradeId);
@@ -163,7 +179,7 @@ namespace FxFixGateway.Application.BackgroundServices
                     DateTime.UtcNow);
 
                 // Skriv workflow event: FIX_ACK_SENT
-                await _ackQueueRepository.InsertWorkflowEventAsync(
+                await TryInsertWorkflowEventAsync(
                     ack.TradeId,
                     "FIX_ACK",
                     "FIX_ACK_SENT",
@@ -182,7 +198,7 @@ namespace FxFixGateway.Application.BackgroundServices
                     null);
 
                 // Skriv workflow event: FIX_ACK_ERROR
-                await _ackQueueRepository.InsertWorkflowEventAsync(
+                await TryInsertWorkflowEventAsync(
                     ack.TradeId,
                     "FIX_ACK",
                     "FIX_ACK_ERROR",
@@ -191,55 +207,22 @@ namespace FxFixGateway.Application.BackgroundServices
         }
 
         /// <summary>
-        /// Bygger ett korrekt FIX 4.4 TradeCaptureReportAck (AR) meddelande.
+        /// Attempts to insert a workflow event. Logs a warning if it fails but does not throw.
+        /// This ensures ACK processing continues even if audit trail logging fails.
         /// </summary>
-        private string BuildTradeCaptureReportAck(Domain.ValueObjects.PendingAck ack)
+        private async Task TryInsertWorkflowEventAsync(long tradeId, string systemCode, string eventType, string? details)
         {
-            // Bygg body först (allt mellan tag 9 och tag 10)
-            var body = new StringBuilder();
-
-            // 35 = MsgType (AR = TradeCaptureReportAck)
-            body.Append($"35=AR{SOH}");
-
-            // 571 = TradeReportID (från ursprungliga AE)
-            body.Append($"571={ack.TradeReportId}{SOH}");
-
-            // 939 = TrdRptStatus (0 = Accepted)
-            body.Append($"939=0{SOH}");
-
-            // 818 = SecondaryTradeReportID (vårt interna trade ID)
-            if (!string.IsNullOrEmpty(ack.InternTradeId))
+            try
             {
-                body.Append($"818={ack.InternTradeId}{SOH}");
+                await _ackQueueRepository.InsertWorkflowEventAsync(tradeId, systemCode, eventType, details);
             }
-
-            var bodyStr = body.ToString();
-            var bodyLength = bodyStr.Length;
-
-            // Bygg header
-            var header = $"8=FIX.4.4{SOH}9={bodyLength}{SOH}";
-
-            // Beräkna checksum (summa av alla bytes i header + body, modulo 256)
-            var messageWithoutChecksum = header + bodyStr;
-            var checksum = CalculateChecksum(messageWithoutChecksum);
-
-            // Komplett meddelande
-            var fullMessage = $"{messageWithoutChecksum}10={checksum:D3}{SOH}";
-
-            return fullMessage;
-        }
-
-        /// <summary>
-        /// Beräknar FIX checksum (summa av alla ASCII-värden modulo 256).
-        /// </summary>
-        private int CalculateChecksum(string message)
-        {
-            var sum = 0;
-            foreach (var c in message)
+            catch (Exception ex)
             {
-                sum += (byte)c;
+                _logger.LogWarning(ex,
+                    "Failed to insert workflow event for Trade {TradeId}. Event: {EventType}, SystemCode: {SystemCode}. " +
+                    "ACK was processed but audit trail may be incomplete.",
+                    tradeId, eventType, systemCode);
             }
-            return sum % 256;
         }
     }
 }

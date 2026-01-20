@@ -95,102 +95,102 @@
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Session Key -->
+                        <!-- Session Key (readonly) -->
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Session Key:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="0" Grid.Column="1" 
                                  Text="{Binding SelectedSession.SessionKey, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- Host -->
+                        <!-- Host (editable) -->
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Host:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="1" Grid.Column="1" 
-                                 Text="{Binding SelectedSession.Host, Mode=OneWay}" 
+                                 Text="{Binding SelectedSession.Host, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
                                  IsEnabled="{Binding IsEditMode}"
                                  Margin="0,8"/>
 
-                        <!-- Port -->
+                        <!-- Port (editable) -->
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Port:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="2" Grid.Column="1" 
-                                 Text="{Binding SelectedSession.Port, Mode=OneWay}" 
+                                 Text="{Binding SelectedSession.Port, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" 
                                  IsEnabled="{Binding IsEditMode}"
                                  Margin="0,8"/>
 
-                        <!-- SenderCompID -->
+                        <!-- SenderCompID (readonly) -->
                         <TextBlock Grid.Row="3" Grid.Column="0" Text="Sender Comp ID:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="3" Grid.Column="1" 
                                  Text="{Binding SelectedSession.SenderCompID, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- TargetCompID -->
+                        <!-- TargetCompID (readonly) -->
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Target Comp ID:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="4" Grid.Column="1" 
                                  Text="{Binding SelectedSession.TargetCompID, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- BeginString -->
+                        <!-- BeginString (readonly) -->
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="FIX Version:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="5" Grid.Column="1" 
                                  Text="{Binding SelectedSession.BeginString, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- HeartbeatInterval -->
+                        <!-- HeartbeatInterval (readonly) -->
                         <TextBlock Grid.Row="6" Grid.Column="0" Text="Heartbeat (sec):" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="6" Grid.Column="1" 
                                  Text="{Binding SelectedSession.HeartbeatInterval, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- StartTime -->
+                        <!-- StartTime (readonly) -->
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="Start Time:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="7" Grid.Column="1" 
                                  Text="{Binding SelectedSession.StartTimeFormatted, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- EndTime -->
+                        <!-- EndTime (readonly) -->
                         <TextBlock Grid.Row="8" Grid.Column="0" Text="End Time:" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="8" Grid.Column="1" 
                                  Text="{Binding SelectedSession.EndTimeFormatted, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- ReconnectInterval -->
+                        <!-- ReconnectInterval (readonly) -->
                         <TextBlock Grid.Row="9" Grid.Column="0" Text="Reconnect (sec):" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="9" Grid.Column="1" 
                                  Text="{Binding SelectedSession.ReconnectInterval, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- LogonTimeout -->
+                        <!-- LogonTimeout (readonly) -->
                         <TextBlock Grid.Row="10" Grid.Column="0" Text="Logon Timeout (sec):" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="10" Grid.Column="1" 
                                  Text="{Binding SelectedSession.LogonTimeout, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- LogoutTimeout -->
+                        <!-- LogoutTimeout (readonly) -->
                         <TextBlock Grid.Row="11" Grid.Column="0" Text="Logout Timeout (sec):" Margin="0,8" VerticalAlignment="Center"/>
                         <TextBox Grid.Row="11" Grid.Column="1" 
                                  Text="{Binding SelectedSession.LogoutTimeout, Mode=OneWay}" 
                                  IsReadOnly="True"
                                  Margin="0,8"/>
 
-                        <!-- IsEnabled -->
+                        <!-- IsEnabled (editable) -->
                         <TextBlock Grid.Row="12" Grid.Column="0" Text="Enabled:" Margin="0,8" VerticalAlignment="Center"/>
                         <CheckBox Grid.Row="12" Grid.Column="1" 
-                                  IsChecked="{Binding SelectedSession.IsEnabled, Mode=OneWay}" 
+                                  IsChecked="{Binding SelectedSession.IsEnabled, Mode=TwoWay}" 
                                   IsEnabled="{Binding IsEditMode}"
                                   Margin="0,8"/>
 
-                        <!-- ResetOnLogon -->
+                        <!-- ResetOnLogon (readonly for now) -->
                         <TextBlock Grid.Row="13" Grid.Column="0" Text="Reset on Logon:" Margin="0,8" VerticalAlignment="Center"/>
                         <CheckBox Grid.Row="13" Grid.Column="1" 
                                   IsChecked="{Binding SelectedSession.ResetOnLogon, Mode=OneWay}" 
-                                  IsEnabled="{Binding IsEditMode}"
+                                  IsEnabled="False"
                                   Margin="0,8"/>
                     </Grid>
                 </ScrollViewer>

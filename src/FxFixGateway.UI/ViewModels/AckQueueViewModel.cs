@@ -8,6 +8,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FxFixGateway.Domain.Enums;
 using FxFixGateway.Domain.Interfaces;
+using FxFixGateway.Domain.Utilities;
 using FxFixGateway.Domain.ValueObjects;
 
 namespace FxFixGateway.UI.ViewModels
@@ -92,8 +93,13 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (string.IsNullOrEmpty(_currentSessionKey)) return;
 
+            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] LoadDataAsync for SessionKey: '{_currentSessionKey}'");
+
             // Hämta statistik
             var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
+            
+            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] Statistics: Pending={stats.PendingCount}, SentToday={stats.SentTodayCount}, Failed={stats.FailedCount}");
+            
             PendingCount = stats.PendingCount;
             SentTodayCount = stats.SentTodayCount;
             FailedCount = stats.FailedCount;
@@ -108,9 +114,12 @@ namespace FxFixGateway.UI.ViewModels
             };
 
             var entries = await _ackQueueRepository.GetAcksBySessionAsync(_currentSessionKey, statusFilter, 200);
+            var entryList = entries.ToList();
+            
+            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] GetAcksBySessionAsync returned {entryList.Count} entries");
 
             Acks.Clear();
-            foreach (var entry in entries)
+            foreach (var entry in entryList)
             {
                 Acks.Add(new AckEntryViewModel(entry));
             }
@@ -128,14 +137,17 @@ namespace FxFixGateway.UI.ViewModels
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     var oldPending = PendingCount;
+                    var oldSentToday = SentTodayCount;
+                    var oldFailed = FailedCount;
+
                     PendingCount = stats.PendingCount;
                     SentTodayCount = stats.SentTodayCount;
                     FailedCount = stats.FailedCount;
 
-                    // If pending count changed, refresh the list too
-                    if (oldPending != PendingCount)
+                    // Refresh grid if ANY counter changed
+                    if (oldPending != PendingCount || oldSentToday != SentTodayCount || oldFailed != FailedCount)
                     {
-                        _ = LoadDataAsync();
+                        _ = LoadDataWithErrorHandlingAsync();
                     }
                 });
             }
@@ -149,7 +161,19 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (!string.IsNullOrEmpty(_currentSessionKey))
             {
-                _ = LoadDataAsync();
+                _ = LoadDataWithErrorHandlingAsync();
+            }
+        }
+
+        private async Task LoadDataWithErrorHandlingAsync()
+        {
+            try
+            {
+                await LoadDataAsync();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] LoadDataAsync error: {ex.Message}");
             }
         }
 
@@ -193,10 +217,22 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (SelectedAck == null || SelectedAck.Status != AckStatus.Pending) return;
 
+            // Validate InternTradeId before sending
+            if (string.IsNullOrEmpty(SelectedAck.InternTradeId))
+            {
+                MessageBox.Show(
+                    $"Cannot send ACK for {SelectedAck.TradeReportId} - InternTradeId is missing.\n" +
+                    "The trade may not have been processed by the downstream system yet.",
+                    "Missing Data",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return;
+            }
+
             try
             {
-                // Bygg och skicka ACK-meddelande
-                var arMessage = BuildAckMessage(SelectedAck);
+                // Bygg och skicka ACK-meddelande via gemensam utility
+                var arMessage = FixMessageBuilder.BuildTradeCaptureReportAck(SelectedAck.TradeReportId, SelectedAck.InternTradeId);
                 await _fixEngine.SendMessageAsync(_currentSessionKey!, arMessage);
 
                 // Uppdatera status
@@ -243,34 +279,6 @@ namespace FxFixGateway.UI.ViewModels
                     MessageBox.Show($"Failed to cancel ACK: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
-        }
-
-        private string BuildAckMessage(AckEntryViewModel ack)
-        {
-            const char SOH = '\x01';
-            var body = new System.Text.StringBuilder();
-
-            body.Append($"35=AR{SOH}");
-            body.Append($"571={ack.TradeReportId}{SOH}");
-            body.Append($"939=0{SOH}");
-
-            if (!string.IsNullOrEmpty(ack.InternTradeId))
-            {
-                body.Append($"818={ack.InternTradeId}{SOH}");
-            }
-
-            var bodyStr = body.ToString();
-            var header = $"8=FIX.4.4{SOH}9={bodyStr.Length}{SOH}";
-            var messageWithoutChecksum = header + bodyStr;
-
-            var sum = 0;
-            foreach (var c in messageWithoutChecksum)
-            {
-                sum += (byte)c;
-            }
-            var checksum = sum % 256;
-
-            return $"{messageWithoutChecksum}10={checksum:D3}{SOH}";
         }
 
         public void Dispose()
@@ -321,11 +329,5 @@ namespace FxFixGateway.UI.ViewModels
                 return $"waiting {(int)elapsed.TotalSeconds}s";
             }
         }
-
-        public string TimeFormatted => CreatedUtc.ToString("HH:mm:ss");
-        public string DirectionText => SentUtc.HasValue ? "OUT" : "IN";
-        public string MsgType => "ACK"; // Assuming the message type is ACK for all entries
-
-        public string Summary => $"TradeReportID: {TradeReportId}, Status: {StatusText}";
     }
 }

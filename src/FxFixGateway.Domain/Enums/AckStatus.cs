@@ -13,11 +13,11 @@
         /// <summary>
         /// Har skickats till venue.
         /// </summary>
-        Sent = 1,
+        ACK_SENT = 1,
 
         /// <summary>
         /// Misslyckades att skicka.
         /// </summary>
-        Failed = 2
+        A = 2
     }
 }
