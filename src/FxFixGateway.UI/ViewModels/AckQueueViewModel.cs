@@ -93,12 +93,12 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (string.IsNullOrEmpty(_currentSessionKey)) return;
 
-            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] LoadDataAsync for SessionKey: '{_currentSessionKey}'");
+            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] LoadDataAsync for SessionKey: '{_currentSessionKey}'");
 
             // Hämta statistik
             var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
             
-            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] Statistics: Pending={stats.PendingCount}, SentToday={stats.SentTodayCount}, Failed={stats.FailedCount}");
+            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] Statistics: Pending={stats.PendingCount}, SentToday={stats.SentTodayCount}, Failed={stats.FailedCount}");
             
             PendingCount = stats.PendingCount;
             SentTodayCount = stats.SentTodayCount;
@@ -116,7 +116,7 @@ namespace FxFixGateway.UI.ViewModels
             var entries = await _ackQueueRepository.GetAcksBySessionAsync(_currentSessionKey, statusFilter, 200);
             var entryList = entries.ToList();
             
-            System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] GetAcksBySessionAsync returned {entryList.Count} entries");
+            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] GetAcksBySessionAsync returned {entryList.Count} entries");
 
             Acks.Clear();
             foreach (var entry in entryList)

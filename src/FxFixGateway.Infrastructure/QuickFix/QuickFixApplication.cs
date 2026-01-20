@@ -14,6 +14,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
     public class QuickFixApplication : QF.IApplication
     {
         private readonly Dictionary<QF.SessionID, string> _sessionKeyMap;
+        private readonly Dictionary<string, (string Username, string Password)> _sessionCredentials;
         private readonly IMessageInService? _messageInService;
         private readonly IMessageInParserOrchestrator? _orchestrator;
 
@@ -25,10 +26,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         public QuickFixApplication(
             Dictionary<QF.SessionID, string> sessionKeyMap,
+            Dictionary<string, (string Username, string Password)> sessionCredentials,
             IMessageInService? messageInService,
             IMessageInParserOrchestrator? orchestrator)
         {
             _sessionKeyMap = sessionKeyMap ?? throw new ArgumentNullException(nameof(sessionKeyMap));
+            _sessionCredentials = sessionCredentials ?? new Dictionary<string, (string, string)>();
             _messageInService = messageInService;
             _orchestrator = orchestrator;
         }
@@ -100,6 +103,29 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (sessionKey == null) return;
 
             var msgType = GetMessageType(message);
+
+            // Lägg till credentials i Logon-meddelandet
+            if (msgType == "A") // Logon
+            {
+                if (_sessionCredentials.TryGetValue(sessionKey, out var credentials))
+                {
+                    if (!string.IsNullOrEmpty(credentials.Username))
+                    {
+                        message.SetField(new QF.Fields.Username(credentials.Username));  // tag 553
+                    }
+                    if (!string.IsNullOrEmpty(credentials.Password))
+                    {
+                        message.SetField(new QF.Fields.Password(credentials.Password));  // tag 554
+                    }
+                    
+                    // Sätt ResetSeqNumFlag=Y för att undvika sekvensfel
+                    if (!message.IsSetField(QF.Fields.Tags.ResetSeqNumFlag))
+                    {
+                        message.SetField(new QF.Fields.ResetSeqNumFlag(true));  // tag 141=Y
+                    }
+                }
+            }
+
             var rawMessage = message.ToString();
 
             // Log ALL outgoing admin messages
@@ -128,6 +154,25 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             var msgType = GetMessageType(message);
             var rawMessage = message.ToString();
+
+            // Kolla om sessionen faktiskt är inloggad
+            var session = QF.Session.LookupSession(sessionId);
+            var isLoggedOn = session?.IsLoggedOn ?? false;
+            var seqNum = message.Header.IsSetField(QF.Fields.Tags.MsgSeqNum) 
+                ? message.Header.GetInt(QF.Fields.Tags.MsgSeqNum) 
+                : -1;
+
+            // Logga med mer detaljer
+            System.Diagnostics.Debug.WriteLine(
+                $"[ToApp] {sessionKey} MsgType={msgType} SeqNum={seqNum} IsLoggedOn={isLoggedOn}");
+
+            if (!isLoggedOn)
+            {
+                // VARNING: Meddelandet kommer köas, inte skickas direkt!
+                ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(
+                    sessionKey,
+                    $"WARNING: Sending {msgType} while session is NOT logged on - message will be queued"));
+            }
 
             MessageSent?.Invoke(this, new MessageSentEvent(
                 sessionKey,
@@ -280,11 +325,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private void EnrichVolbrokerAE(MessageIn entity, QF.Message message)
         {
-            // KRITISKT för ACK: SourceMessageKey = 818 (SecondaryTradeReportID) → fallback 571 (TradeReportID)
-            entity.SourceMessageKey = TryGetField(message, 818) ?? TryGetField(message, 571);
+            // KRITISKT: SourceMessageKey = 571 (TradeReportID) - detta är vad vi ska eka i AR
+            entity.SourceMessageKey = TryGetField(message, 571);
+            
+            // ExternalTradeKey = 818 (SecondaryTradeReportID) - Volbrokers ID
             entity.ExternalTradeKey = TryGetField(message, 818);
 
-            // Enrichment fields (nice-to-have för debugging, kan skippa om du vill)
+            // Enrichment fields
             entity.InstrumentCode = TryGetField(message, 55); // Symbol
         }
 

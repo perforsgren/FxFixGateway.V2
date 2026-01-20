@@ -14,7 +14,8 @@ namespace FxFixGateway.Infrastructure.Logging
         {
             Log.Logger = new LoggerConfiguration()
                 .MinimumLevel.Debug()
-                .WriteTo.Console()
+                //.WriteTo.Console()
+                //.WriteTo.Debug() // LÄGG TILL DENNA RAD
                 .WriteTo.File("logs/gateway-.txt", rollingInterval: RollingInterval.Day)
                 .CreateLogger();
         }

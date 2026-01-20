@@ -7,24 +7,32 @@ namespace FxFixGateway.Domain.Utilities
         /// <summary>
         /// Builds a FIX 4.4 TradeCaptureReportAck (AR) message.
         /// </summary>
-        public static string BuildTradeCaptureReportAck(string tradeReportId, string? internTradeId)
+        /// <param name="venueTradeReportId">Tag 571 - TradeReportID från AE (ekoas tillbaka)</param>
+        /// <param name="internalTradeId">Tag 17 & 818 - ExecID och SecondaryTradeReportRefID (vårt interna ID)</param>
+        public static string BuildTradeCaptureReportAck(string venueTradeReportId, string? internalTradeId)
         {
             var body = new System.Text.StringBuilder();
 
             // 35 = MsgType (AR = TradeCaptureReportAck)
             body.Append($"35=AR{SOH}");
 
-            // 571 = TradeReportID (från ursprungliga AE)
-            body.Append($"571={tradeReportId}{SOH}");
+            // 17 = ExecID (vårt interna trade ID - requested by Volbroker)
+            if (!string.IsNullOrEmpty(internalTradeId))
+            {
+                body.Append($"17={internalTradeId}{SOH}");
+            }
+
+            // 571 = TradeReportID (EKO från ursprungliga AE tag 571)
+            body.Append($"571={venueTradeReportId}{SOH}");
+
+            // 818 = SecondaryTradeReportRefID (vårt interna trade ID)
+            if (!string.IsNullOrEmpty(internalTradeId))
+            {
+                body.Append($"818={internalTradeId}{SOH}");
+            }
 
             // 939 = TrdRptStatus (0 = Accepted)
             body.Append($"939=0{SOH}");
-
-            // 818 = SecondaryTradeReportID (vårt interna trade ID)
-            if (!string.IsNullOrEmpty(internTradeId))
-            {
-                body.Append($"818={internTradeId}{SOH}");
-            }
 
             var bodyStr = body.ToString();
             var bodyLength = bodyStr.Length;

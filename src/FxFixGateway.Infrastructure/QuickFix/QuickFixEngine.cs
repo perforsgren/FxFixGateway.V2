@@ -29,6 +29,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private QF.SessionSettings? _settings;
         private Dictionary<QF.SessionID, string>? _sessionKeyMap;
         private Dictionary<string, QF.SessionID>? _sessionIdMap;
+        private Dictionary<string, bool>? _sessionAutoStart;
 
         private bool _initialized;
         private bool _running;
@@ -51,7 +52,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _orchestrator = orchestrator;
         }
 
-        public Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
+        public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
         {
             if (_initialized)
                 throw new InvalidOperationException("QuickFixEngine already initialized");
@@ -60,42 +61,68 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (configList.Count == 0)
                 throw new ArgumentException("At least one session configuration required");
 
-            _logger?.LogInformation("Initializing QuickFIX engine with {Count} sessions", configList.Count);
+            _logger?.LogInformation("=== QuickFIX Engine Initializing ===");
+            _logger?.LogInformation("Sessions to configure: {Count}", configList.Count);
 
-            var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
-            _settings = builder.Build(configList);
+            foreach (var cfg in configList)
+            {
+                _logger?.LogInformation(
+                    "  [{SessionKey}] {Host}:{Port} SSL={UseSsl} Tunnel={UseTunnel} Enabled={Enabled}",
+                    cfg.SessionKey, cfg.Host, cfg.Port, cfg.UseSsl, cfg.UseSSLTunnel, cfg.IsEnabled);
+            }
 
-            // Starta SSL tunnlar INNAN QuickFIX initieras
+            // STARTA SSL TUNNELS FÖRST
             foreach (var config in configList)
             {
-                if (config.UseSSLTunnel && !string.IsNullOrEmpty(config.SslRemoteHost))
+                if (config.UseSSLTunnel &&
+                    !string.IsNullOrEmpty(config.SslRemoteHost) &&
+                    config.SslRemotePort.HasValue &&
+                    config.SslLocalPort.HasValue)
                 {
-                    _logger?.LogInformation("Starting SSL tunnel for {SessionKey}: localhost:{LocalPort} -> {RemoteHost}:{RemotePort}",
-                        config.SessionKey, config.SslLocalPort, config.SslRemoteHost, config.SslRemotePort);
+                    try
+                    {
+                        _logger?.LogInformation("[{SessionKey}] Creating SSL tunnel...", config.SessionKey);
+                        
+                        var tunnel = new SSLTunnelProxy(
+                            config.SessionKey,
+                            config.SslRemoteHost,
+                            config.SslRemotePort.Value,
+                            config.SslLocalPort.Value,
+                            config.SslSniHost,
+                            _logger);
 
-                    var tunnel = new SSLTunnelProxy(
-                        sessionKey: config.SessionKey,      // <-- NYTT! Detta saknades
-                        remoteHost: config.SslRemoteHost,
-                        remotePort: config.SslRemotePort.Value,
-                        localPort: config.SslLocalPort.Value,
-                        sniHost: config.SslSniHost,
-                        logger: _logger);
+                        tunnel.Start();
+                        _sslTunnels[config.SessionKey] = tunnel;
 
-                    tunnel.Start();
-                    _sslTunnels[config.SessionKey] = tunnel;
+                        _logger?.LogInformation("[{SessionKey}] SSL Tunnel ready", config.SessionKey);
+                        await Task.Delay(500);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "[{SessionKey}] FAILED to start SSL tunnel: {Message}", 
+                            config.SessionKey, ex.Message);
 
-                    _logger?.LogInformation("SSL tunnel started for {SessionKey}", config.SessionKey);
+                        // Cleanup tunnels on error
+                        foreach (var t in _sslTunnels.Values)
+                        {
+                            t.Dispose();
+                        }
+                        _sslTunnels.Clear();
+
+                        throw;
+                    }
                 }
             }
 
-            // Vänta lite så tunnlarna hinner bli redo
-            if (_sslTunnels.Count > 0)
-            {
-                Task.Delay(1000).Wait();
-            }
+            // SEDAN bygg QuickFIX settings
+            _logger?.LogInformation("Building QuickFIX SessionSettings...");
+            var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
+            _settings = builder.Build(configList);
 
             _sessionKeyMap = new Dictionary<global::QuickFix.SessionID, string>();
             _sessionIdMap = new Dictionary<string, global::QuickFix.SessionID>();
+            _sessionAutoStart = new Dictionary<string, bool>();
+            var sessionCredentials = new Dictionary<string, (string Username, string Password)>();
 
             foreach (var config in configList)
             {
@@ -106,14 +133,24 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                 _sessionKeyMap[sessionId] = config.SessionKey;
                 _sessionIdMap[config.SessionKey] = sessionId;
+                _sessionAutoStart[config.SessionKey] = config.IsEnabled;
 
-                _logger?.LogDebug("Mapped SessionID {SessionID} to SessionKey {SessionKey}",
-                    sessionId, config.SessionKey);
+                // Lägg till credentials för sessionen
+                if (!string.IsNullOrEmpty(config.LogonUsername))
+                {
+                    sessionCredentials[config.SessionKey] = (config.LogonUsername, config.Password ?? string.Empty);
+                    _logger?.LogDebug("[{SessionKey}] Credentials configured (user: {User})", 
+                        config.SessionKey, config.LogonUsername);
+                }
+
+                _logger?.LogDebug("[{SessionKey}] Mapped to SessionID: {SessionID} (AutoStart={AutoStart})",
+                    config.SessionKey, sessionId, config.IsEnabled);
             }
 
-            // Pass FxTradeHub services to QuickFixApplication
+            // Pass FxTradeHub services AND credentials to QuickFixApplication
             _application = new QuickFixApplication(
                 _sessionKeyMap,
+                sessionCredentials,
                 _messageInService,
                 _orchestrator);
 
@@ -127,6 +164,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var logFactory = new global::QuickFix.Logger.FileLogFactory(_settings);
             var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
+            _logger?.LogInformation("Creating SocketInitiator...");
             _initiator = new global::QuickFix.Transport.SocketInitiator(
                 _application,
                 storeFactory,
@@ -134,15 +172,47 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 logFactory,
                 messageFactory);
 
+            // Starta initiator (nätverkshantering)
+            _logger?.LogInformation("Starting SocketInitiator...");
+            _initiator.Start();
+            _running = true;
+
+            // Vänta lite så sessioner hinner skapas
+            await Task.Delay(500);
+
+            // Kontrollera varje session - auto-start eller manuell
+            foreach (var kvp in _sessionIdMap)
+            {
+                var sessionKey = kvp.Key;
+                var sessionId = kvp.Value;
+                var session = QF.Session.LookupSession(sessionId);
+
+                if (session != null)
+                {
+                    if (_sessionAutoStart.TryGetValue(sessionKey, out var autoStart) && autoStart)
+                    {
+                        _logger?.LogInformation("[{SessionKey}] Auto-start ENABLED - will connect automatically", sessionKey);
+                    }
+                    else
+                    {
+                        session.Logout("Waiting for manual start");
+                        _logger?.LogInformation("[{SessionKey}] Auto-start DISABLED - waiting for manual Start", sessionKey);
+
+                        StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
+                            sessionKey,
+                            Domain.Enums.SessionStatus.Starting,
+                            Domain.Enums.SessionStatus.Stopped));
+                    }
+                }
+                else
+                {
+                    _logger?.LogWarning("[{SessionKey}] Session.LookupSession returned NULL!", sessionKey);
+                }
+            }
+
             _initialized = true;
-            _running = false;
-
-            _logger?.LogInformation("QuickFIX engine initialized successfully");
-            return Task.CompletedTask;
+            _logger?.LogInformation("=== QuickFIX Engine Initialized Successfully ===");
         }
-
-
-
 
         public async Task StartSessionAsync(string sessionKey)
         {
@@ -151,20 +221,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             if (!_sessionIdMap.TryGetValue(sessionKey, out var sessionId))
             {
-                _logger?.LogError("SessionKey {SessionKey} not found", sessionKey);
+                _logger?.LogError("[{SessionKey}] NOT FOUND in sessionIdMap", sessionKey);
                 ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(sessionKey, "Session not found"));
                 return;
             }
 
-            if (!_running && _initiator != null)
-            {
-                _logger?.LogInformation("Starting QuickFIX initiator");
-                _initiator.Start();
-                _running = true;
-                await Task.Delay(500);
-            }
-
-            _logger?.LogInformation("Logging on session {SessionKey}", sessionKey);
+            _logger?.LogInformation("[{SessionKey}] Starting session (SessionID: {SessionID})...", sessionKey, sessionId);
 
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey,
@@ -174,6 +236,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var session = QF.Session.LookupSession(sessionId);
             if (session != null)
             {
+                _logger?.LogDebug("[{SessionKey}] Calling session.Logon()...", sessionKey);
                 session.Logon();
 
                 StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
@@ -183,7 +246,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
             else
             {
-                _logger?.LogError("QuickFIX Session not found for {SessionKey}", sessionKey);
+                _logger?.LogError("[{SessionKey}] QuickFIX Session.LookupSession returned NULL", sessionKey);
                 ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(sessionKey, "QuickFIX session not found"));
             }
         }
@@ -194,9 +257,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 return;
 
             if (!_sessionIdMap.TryGetValue(sessionKey, out var sessionId))
+            {
+                _logger?.LogWarning("[{SessionKey}] Not found when trying to stop", sessionKey);
                 return;
+            }
 
-            _logger?.LogInformation("Logging out session {SessionKey}", sessionKey);
+            _logger?.LogInformation("[{SessionKey}] Stopping session...", sessionKey);
 
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey,
@@ -207,6 +273,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (session != null)
             {
                 session.Logout("User requested logout");
+                _logger?.LogDebug("[{SessionKey}] Logout sent", sessionKey);
             }
 
             await Task.Delay(300);
@@ -215,10 +282,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 sessionKey,
                 Domain.Enums.SessionStatus.Disconnecting,
                 Domain.Enums.SessionStatus.Stopped));
+            
+            _logger?.LogInformation("[{SessionKey}] Session stopped", sessionKey);
         }
 
         public async Task RestartSessionAsync(string sessionKey)
         {
+            _logger?.LogInformation("[{SessionKey}] Restarting session...", sessionKey);
             await StopSessionAsync(sessionKey);
             await Task.Delay(500);
             await StartSessionAsync(sessionKey);
@@ -231,7 +301,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             if (!_sessionIdMap.TryGetValue(sessionKey, out var sessionId))
             {
-                _logger?.LogError("SessionKey {SessionKey} not found", sessionKey);
+                _logger?.LogError("[{SessionKey}] Not found when trying to send message", sessionKey);
                 return Task.CompletedTask;
             }
 
@@ -244,12 +314,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 if (session != null)
                 {
                     session.Send(message);
-                    _logger?.LogDebug("Sent message for {SessionKey}", sessionKey);
+                    _logger?.LogDebug("[{SessionKey}] Message sent", sessionKey);
                 }
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "Failed to send message for {SessionKey}", sessionKey);
+                _logger?.LogError(ex, "[{SessionKey}] Failed to send message: {Message}", sessionKey, ex.Message);
                 ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(sessionKey, ex.Message, ex));
             }
 
@@ -258,21 +328,24 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         public Task ShutdownAsync()
         {
-            _logger?.LogInformation("Shutting down QuickFIX engine");
+            _logger?.LogInformation("=== QuickFIX Engine Shutting Down ===");
 
             if (_running && _initiator != null)
             {
+                _logger?.LogInformation("Stopping SocketInitiator...");
                 _initiator.Stop();
                 _running = false;
             }
 
             // STÄNG SSL TUNNELS
+            _logger?.LogInformation("Stopping {Count} SSL tunnels...", _sslTunnels.Count);
             foreach (var tunnel in _sslTunnels.Values)
             {
                 tunnel.Dispose();
             }
             _sslTunnels.Clear();
 
+            _logger?.LogInformation("=== QuickFIX Engine Shutdown Complete ===");
             return Task.CompletedTask;
         }
 

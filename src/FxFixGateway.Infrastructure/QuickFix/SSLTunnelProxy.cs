@@ -23,6 +23,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private CancellationTokenSource? _cts;
         private Task? _acceptLoopTask;
         private bool _disposed;
+        private int _activeConnections;
 
         public SSLTunnelProxy(
             string sessionKey,
@@ -46,24 +47,39 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 throw new InvalidOperationException("SSL tunnel already started.");
 
             _cts = new CancellationTokenSource();
-            _listener = new TcpListener(IPAddress.Loopback, _localPort);
-            _listener.Start();
+            
+            try
+            {
+                _listener = new TcpListener(IPAddress.Loopback, _localPort);
+                _listener.Start();
 
-            _logger?.LogInformation("[{SessionKey}] SSL Tunnel: localhost:{LocalPort} -> {RemoteHost}:{RemotePort} (SNI={SniHost})",
-                _sessionKey, _localPort, _remoteHost, _remotePort, _sniHost);
+                _logger?.LogInformation(
+                    "[{SessionKey}] SSL Tunnel STARTED: localhost:{LocalPort} -> {RemoteHost}:{RemotePort} (SNI={SniHost})",
+                    _sessionKey, _localPort, _remoteHost, _remotePort, _sniHost);
 
-            _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
+                _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
+            }
+            catch (SocketException ex)
+            {
+                _logger?.LogError(ex, 
+                    "[{SessionKey}] SSL Tunnel FAILED TO START on port {LocalPort}: {Message}",
+                    _sessionKey, _localPort, ex.Message);
+                throw;
+            }
         }
 
         public void Stop()
         {
             if (_disposed) return;
 
+            _logger?.LogInformation("[{SessionKey}] SSL Tunnel stopping...", _sessionKey);
+
             try { _cts?.Cancel(); } catch { }
             try { _listener?.Stop(); } catch { }
             try { _acceptLoopTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
 
-            _logger?.LogInformation("[{SessionKey}] SSL Tunnel stopped.", _sessionKey);
+            _logger?.LogInformation("[{SessionKey}] SSL Tunnel stopped. Active connections: {Count}", 
+                _sessionKey, _activeConnections);
 
             _listener = null;
             _cts = null;
@@ -72,6 +88,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private async Task AcceptLoopAsync(CancellationToken cancellationToken)
         {
+            _logger?.LogDebug("[{SessionKey}] SSL Tunnel accept loop started", _sessionKey);
+
             try
             {
                 while (!cancellationToken.IsCancellationRequested)
@@ -81,18 +99,25 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     try
                     {
                         localClient = await _listener!.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                        Interlocked.Increment(ref _activeConnections);
+                        
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel: QuickFIX connected (active: {Count})", 
+                            _sessionKey, _activeConnections);
                     }
                     catch (OperationCanceledException)
                     {
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel accept loop cancelled", _sessionKey);
                         break;
                     }
                     catch (ObjectDisposedException)
                     {
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel listener disposed", _sessionKey);
                         break;
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogWarning("[{SessionKey}] SSL Tunnel accept error: {Error}", _sessionKey, ex.Message);
+                        _logger?.LogWarning(ex, "[{SessionKey}] SSL Tunnel accept error: {Error}", 
+                            _sessionKey, ex.Message);
                         continue;
                     }
 
@@ -101,31 +126,35 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "[{SessionKey}] SSL Tunnel accept loop terminated", _sessionKey);
+                _logger?.LogError(ex, "[{SessionKey}] SSL Tunnel accept loop terminated unexpectedly", _sessionKey);
             }
         }
 
         private async Task HandleClientAsync(TcpClient localClient, CancellationToken cancellationToken)
         {
+            var connectionId = Guid.NewGuid().ToString("N")[..8];
+            
+            _logger?.LogDebug("[{SessionKey}][{ConnId}] Connecting to remote {Host}:{Port}...", 
+                _sessionKey, connectionId, _remoteHost, _remotePort);
+
             using (localClient)
             {
                 TcpClient? remoteClient = null;
 
                 try
                 {
-                    _logger?.LogDebug("[{SessionKey}] SSL Tunnel: Client connected, connecting to remote...", _sessionKey);
-                    
+                    // 1. Connect to remote
                     remoteClient = new TcpClient();
                     
-                    // Lägg till timeout för anslutning
                     using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                     connectCts.CancelAfter(TimeSpan.FromSeconds(30));
-            
+                    
                     await remoteClient.ConnectAsync(_remoteHost, _remotePort, connectCts.Token).ConfigureAwait(false);
                     
-                    _logger?.LogDebug("[{SessionKey}] SSL Tunnel: Connected to {Host}:{Port}, starting SSL handshake...", 
-                        _sessionKey, _remoteHost, _remotePort);
+                    _logger?.LogDebug("[{SessionKey}][{ConnId}] TCP connected, starting SSL handshake...", 
+                        _sessionKey, connectionId);
 
+                    // 2. SSL handshake
                     using (remoteClient)
                     using (var sslStream = new SslStream(
                         remoteClient.GetStream(),
@@ -140,27 +169,57 @@ namespace FxFixGateway.Infrastructure.QuickFix
                                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck
                             }, cancellationToken).ConfigureAwait(false);
 
+                        _logger?.LogInformation(
+                            "[{SessionKey}][{ConnId}] SSL tunnel established (Protocol: {Protocol}, Cipher: {Cipher})",
+                            _sessionKey, connectionId, sslStream.SslProtocol, sslStream.CipherAlgorithm);
+
+                        // 3. Start pumping data
                         NetworkStream localStream = localClient.GetStream();
 
-                        Task t1 = PumpAsync(localStream, sslStream, cancellationToken);
-                        Task t2 = PumpAsync(sslStream, localStream, cancellationToken);
+                        Task t1 = PumpAsync(localStream, sslStream, "QuickFIX->Remote", connectionId, cancellationToken);
+                        Task t2 = PumpAsync(sslStream, localStream, "Remote->QuickFIX", connectionId, cancellationToken);
 
                         await Task.WhenAny(t1, t2).ConfigureAwait(false);
+                        
+                        _logger?.LogDebug("[{SessionKey}][{ConnId}] Connection closed normally", 
+                            _sessionKey, connectionId);
                     }
+                }
+                catch (SocketException ex)
+                {
+                    _logger?.LogWarning("[{SessionKey}][{ConnId}] Socket error: {Message} (ErrorCode: {Code})", 
+                        _sessionKey, connectionId, ex.Message, ex.SocketErrorCode);
+                }
+                catch (AuthenticationException ex)
+                {
+                    _logger?.LogError("[{SessionKey}][{ConnId}] SSL authentication failed: {Message}", 
+                        _sessionKey, connectionId, ex.Message);
+                }
+                catch (OperationCanceledException)
+                {
+                    _logger?.LogDebug("[{SessionKey}][{ConnId}] Connection cancelled", _sessionKey, connectionId);
                 }
                 catch (Exception ex)
                 {
-                    _logger?.LogWarning("[{SessionKey}] SSL Tunnel client error: {Error}", _sessionKey, ex.Message);
+                    _logger?.LogWarning("[{SessionKey}][{ConnId}] Connection error: {Type}: {Message}", 
+                        _sessionKey, connectionId, ex.GetType().Name, ex.Message);
+                }
+                finally
+                {
+                    Interlocked.Decrement(ref _activeConnections);
                 }
             }
         }
 
-        private static async Task PumpAsync(
+        private async Task PumpAsync(
             System.IO.Stream source,
             System.IO.Stream destination,
+            string direction,
+            string connectionId,
             CancellationToken cancellationToken)
         {
             byte[] buffer = new byte[8192];
+            long totalBytes = 0;
 
             try
             {
@@ -169,15 +228,25 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     int bytesRead = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
                                                 .ConfigureAwait(false);
                     if (bytesRead <= 0)
+                    {
+                        _logger?.LogDebug("[{SessionKey}][{ConnId}] {Direction}: Stream ended (total: {Bytes} bytes)", 
+                            _sessionKey, connectionId, direction, totalBytes);
                         break;
+                    }
 
                     await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken)
                                       .ConfigureAwait(false);
                     await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+                    
+                    totalBytes += bytesRead;
                 }
             }
             catch (OperationCanceledException) { }
-            catch { }
+            catch (Exception ex)
+            {
+                _logger?.LogDebug("[{SessionKey}][{ConnId}] {Direction}: Pump ended ({Type})", 
+                    _sessionKey, connectionId, direction, ex.GetType().Name);
+            }
         }
 
         private bool ValidateServerCertificate(
@@ -187,9 +256,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
             SslPolicyErrors sslPolicyErrors)
         {
             if (sslPolicyErrors == SslPolicyErrors.None)
+            {
+                _logger?.LogDebug("[{SessionKey}] SSL certificate OK: {Subject}", 
+                    _sessionKey, certificate?.Subject);
                 return true;
+            }
 
-            _logger?.LogWarning("[{SessionKey}] SSL certificate validation warning: {Errors}", _sessionKey, sslPolicyErrors);
+            _logger?.LogWarning(
+                "[{SessionKey}] SSL certificate warning: {Errors} (Subject: {Subject}) - Accepting anyway for DEV/STAGE",
+                _sessionKey, sslPolicyErrors, certificate?.Subject);
+            
             return true; // STAGE/DEV: Tillåt self-signed certs
         }
 

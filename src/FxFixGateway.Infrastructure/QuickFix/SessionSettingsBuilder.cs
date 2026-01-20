@@ -111,31 +111,44 @@ namespace FxFixGateway.Infrastructure.QuickFix
             sb.AppendLine("ResetOnDisconnect=Y");
             sb.AppendLine();
 
-            // SSL settings (om första config använder SSL)
-            if (firstConfig.UseSsl)
-            {
-                sb.AppendLine("SSLEnable=Y");
-                sb.AppendLine("SSLProtocols=Tls12");
-                sb.AppendLine("SSLValidateCertificates=N");
-                sb.AppendLine("SSLCheckCertificateRevocation=N");
-
-                if (!string.IsNullOrEmpty(firstConfig.SslServerName))
-                {
-                    sb.AppendLine($"SSLServerName={firstConfig.SslServerName}");
-                }
-                sb.AppendLine();
-            }
-
             // [SESSION] sections - en per konfiguration
             foreach (var config in configurations)
             {
                 sb.AppendLine("[SESSION]");
                 sb.AppendLine($"SenderCompID={config.SenderCompId}");
                 sb.AppendLine($"TargetCompID={config.TargetCompId}");
+                sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");  // Per-session HeartBtInt
                 sb.AppendLine();
-                sb.AppendLine($"SocketConnectHost={config.Host}");
-                sb.AppendLine($"SocketConnectPort={config.Port}");
-                sb.AppendLine();
+
+                // För SSL Tunnel - anslut till localhost, ingen SSL i QuickFIX
+                if (config.UseSSLTunnel && config.SslLocalPort.HasValue)
+                {
+                    sb.AppendLine($"SocketConnectHost=127.0.0.1");
+                    sb.AppendLine($"SocketConnectPort={config.SslLocalPort.Value}");
+                    sb.AppendLine();
+                }
+                else
+                {
+                    // Normal anslutning (med eller utan native QuickFIX SSL)
+                    sb.AppendLine($"SocketConnectHost={config.Host}");
+                    sb.AppendLine($"SocketConnectPort={config.Port}");
+                    sb.AppendLine();
+
+                    // SSL per session om UseSsl=true
+                    if (config.UseSsl)
+                    {
+                        sb.AppendLine("SSLEnable=Y");
+                        sb.AppendLine("SSLProtocols=Tls12");
+                        sb.AppendLine("SSLValidateCertificates=N");
+                        sb.AppendLine("SSLCheckCertificateRevocation=N");
+
+                        if (!string.IsNullOrEmpty(config.SslServerName))
+                        {
+                            sb.AppendLine($"SSLServerName={config.SslServerName}");
+                        }
+                        sb.AppendLine();
+                    }
+                }
             }
 
             return sb.ToString();
