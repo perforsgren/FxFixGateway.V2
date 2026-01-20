@@ -51,7 +51,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _orchestrator = orchestrator;
         }
 
-        public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
+        public Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
         {
             if (_initialized)
                 throw new InvalidOperationException("QuickFixEngine already initialized");
@@ -62,49 +62,36 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             _logger?.LogInformation("Initializing QuickFIX engine with {Count} sessions", configList.Count);
 
-            // STARTA SSL TUNNELS FÖRST
+            var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
+            _settings = builder.Build(configList);
+
+            // **NYtt: Starta SSL tunnlar INNAN QuickFIX initieras**
             foreach (var config in configList)
             {
-                if (config.UseSSLTunnel &&
-                    !string.IsNullOrEmpty(config.SslRemoteHost) &&
-                    config.SslRemotePort.HasValue &&
-                    config.SslLocalPort.HasValue)
+                if (config.UseSSLTunnel && !string.IsNullOrEmpty(config.SslRemoteHost))
                 {
-                    try
-                    {
-                        var tunnel = new SSLTunnelProxy(
-                            config.SessionKey,
-                            config.SslRemoteHost,
-                            config.SslRemotePort.Value,
-                            config.SslLocalPort.Value,
-                            config.SslSniHost,
-                            _logger);
+                    _logger?.LogInformation("Starting SSL tunnel for {SessionKey}: localhost:{LocalPort} -> {RemoteHost}:{RemotePort}",
+                        config.SessionKey, config.SslLocalPort, config.SslRemoteHost, config.SslRemotePort);
 
-                        tunnel.Start();
-                        _sslTunnels[config.SessionKey] = tunnel;
+                    var tunnel = new SSLTunnelProxy(
+                        localPort: config.SslLocalPort.Value,
+                        remoteHost: config.SslRemoteHost,
+                        remotePort: config.SslRemotePort.Value,
+                        sniHost: config.SslSniHost,
+                        logger: _logger);
 
-                        _logger?.LogInformation("SSL Tunnel started for session {SessionKey}", config.SessionKey);
-                        await Task.Delay(500);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger?.LogError(ex, "Failed to start SSL tunnel for session {SessionKey}", config.SessionKey);
+                    tunnel.Start();
+                    _sslTunnels[config.SessionKey] = tunnel;
 
-                        // Cleanup tunnels on error
-                        foreach (var t in _sslTunnels.Values)
-                        {
-                            t.Dispose();
-                        }
-                        _sslTunnels.Clear();
-
-                        throw;
-                    }
+                    _logger?.LogInformation("SSL tunnel started for {SessionKey}", config.SessionKey);
                 }
             }
 
-            // SEDAN bygg QuickFIX settings
-            var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
-            _settings = builder.Build(configList);
+            // Vänta lite så tunnlarna hinner bli redo
+            if (_sslTunnels.Count > 0)
+            {
+                Task.Delay(1000).Wait();
+            }
 
             _sessionKeyMap = new Dictionary<global::QuickFix.SessionID, string>();
             _sessionIdMap = new Dictionary<string, global::QuickFix.SessionID>();
@@ -150,7 +137,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _running = false;
 
             _logger?.LogInformation("QuickFIX engine initialized successfully");
+            return Task.CompletedTask;
         }
+
+
 
         public async Task StartSessionAsync(string sessionKey)
         {
