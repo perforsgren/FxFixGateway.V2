@@ -113,8 +113,18 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                 try
                 {
+                    _logger?.LogDebug("[{SessionKey}] SSL Tunnel: Client connected, connecting to remote...", _sessionKey);
+                    
                     remoteClient = new TcpClient();
-                    await remoteClient.ConnectAsync(_remoteHost, _remotePort, cancellationToken).ConfigureAwait(false);
+                    
+                    // Lägg till timeout för anslutning
+                    using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    connectCts.CancelAfter(TimeSpan.FromSeconds(30));
+            
+                    await remoteClient.ConnectAsync(_remoteHost, _remotePort, connectCts.Token).ConfigureAwait(false);
+                    
+                    _logger?.LogDebug("[{SessionKey}] SSL Tunnel: Connected to {Host}:{Port}, starting SSL handshake...", 
+                        _sessionKey, _remoteHost, _remotePort);
 
                     using (remoteClient)
                     using (var sslStream = new SslStream(

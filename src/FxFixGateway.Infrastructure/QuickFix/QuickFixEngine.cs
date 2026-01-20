@@ -51,7 +51,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _orchestrator = orchestrator;
         }
 
-        public Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
+        public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
         {
             if (_initialized)
                 throw new InvalidOperationException("QuickFixEngine already initialized");
@@ -62,6 +62,47 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             _logger?.LogInformation("Initializing QuickFIX engine with {Count} sessions", configList.Count);
 
+            // STARTA SSL TUNNELS FÖRST
+            foreach (var config in configList)
+            {
+                if (config.UseSSLTunnel &&
+                    !string.IsNullOrEmpty(config.SslRemoteHost) &&
+                    config.SslRemotePort.HasValue &&
+                    config.SslLocalPort.HasValue)
+                {
+                    try
+                    {
+                        var tunnel = new SSLTunnelProxy(
+                            config.SessionKey,
+                            config.SslRemoteHost,
+                            config.SslRemotePort.Value,
+                            config.SslLocalPort.Value,
+                            config.SslSniHost,
+                            _logger);
+
+                        tunnel.Start();
+                        _sslTunnels[config.SessionKey] = tunnel;
+
+                        _logger?.LogInformation("SSL Tunnel started for session {SessionKey}", config.SessionKey);
+                        await Task.Delay(500);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger?.LogError(ex, "Failed to start SSL tunnel for session {SessionKey}", config.SessionKey);
+
+                        // Cleanup tunnels on error
+                        foreach (var t in _sslTunnels.Values)
+                        {
+                            t.Dispose();
+                        }
+                        _sslTunnels.Clear();
+
+                        throw;
+                    }
+                }
+            }
+
+            // SEDAN bygg QuickFIX settings
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
             _settings = builder.Build(configList);
 
@@ -109,9 +150,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _running = false;
 
             _logger?.LogInformation("QuickFIX engine initialized successfully");
-            return Task.CompletedTask;
         }
-
 
         public async Task StartSessionAsync(string sessionKey)
         {
@@ -235,8 +274,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _running = false;
             }
 
+            // STÄNG SSL TUNNELS
+            foreach (var tunnel in _sslTunnels.Values)
+            {
+                tunnel.Dispose();
+            }
+            _sslTunnels.Clear();
+
             return Task.CompletedTask;
         }
+
 
         public void Dispose()
         {
@@ -264,9 +311,18 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             _initiator?.Dispose();
             _initiator = null;
+
+            // DISPOSE SSL TUNNELS
+            foreach (var tunnel in _sslTunnels.Values)
+            {
+                tunnel.Dispose();
+            }
+            _sslTunnels.Clear();
+
             _running = false;
             _initialized = false;
         }
+
 
         private void OnStatusChanged(object? sender, SessionStatusChangedEvent e) => StatusChanged?.Invoke(this, e);
         private void OnMessageReceived(object? sender, MessageReceivedEvent e) => MessageReceived?.Invoke(this, e);

@@ -228,6 +228,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     {
                         EnrichVolbrokerAE(entity, message);
                     }
+                    else if (venueCode == "FENICS")
+                    {
+                        EnrichFenicsAE(entity, message);
+                    }
 
                     var messageInId = _messageInService.InsertMessage(entity);
 
@@ -255,9 +259,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 "VOLB_STP_DEV" => "VOLBROKER",
                 "VOLB_STP_PROD" => "VOLBROKER",
+                "FENICS_STP_STAGE2" => "FENICS",
                 _ => sessionKey // fallback to SessionKey
             };
         }
+
 
         private string ComputeSHA256Hash(string payload)
         {
@@ -281,6 +287,19 @@ namespace FxFixGateway.Infrastructure.QuickFix
             // Enrichment fields (nice-to-have för debugging, kan skippa om du vill)
             entity.InstrumentCode = TryGetField(message, 55); // Symbol
         }
+
+        private void EnrichFenicsAE(MessageIn entity, QF.Message message)
+        {
+            // KRITISKT för ACK: SourceMessageKey måste fyllas i
+            // TODO: Fenics använder troligen samma tags som Volbroker, men verifiera när du får riktiga AE
+            entity.SourceMessageKey = TryGetField(message, 818) ?? TryGetField(message, 571);
+            entity.ExternalTradeKey = TryGetField(message, 818);
+
+            // TODO: Enrichment för debugging (justera efter Fenics faktiska tags)
+            entity.InstrumentCode = TryGetField(message, 55); // Symbol
+        }
+
+
 
         private string? TryGetField(QF.Message message, int tag)
         {
