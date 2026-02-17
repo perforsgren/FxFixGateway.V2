@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
@@ -34,6 +34,9 @@ namespace FxFixGateway.UI.ViewModels
         private bool _isLoading;
 
         [ObservableProperty]
+        private bool _isRetrying;
+
+        [ObservableProperty]
         private int _pendingCount;
 
         [ObservableProperty]
@@ -42,22 +45,49 @@ namespace FxFixGateway.UI.ViewModels
         [ObservableProperty]
         private int _failedCount;
 
+        [ObservableProperty]
+        private string _lastRefreshTime = "--";
+
+        [ObservableProperty]
+        private string _statusMessage = string.Empty;
+
         public ObservableCollection<string> FilterOptions { get; } = new()
         {
             "All", "Pending", "Sent", "Failed"
         };
+
+        // Computed properties for UI state
+        public bool HasFailedAcks => FailedCount > 0;
+        public bool HasPendingAcks => PendingCount > 0;
+        public bool CanSendSelected => SelectedAck != null
+            && SelectedAck.Status == AckStatus.Pending
+            && !string.IsNullOrEmpty(SelectedAck.InternTradeId);
 
         public AckQueueViewModel(IAckQueueRepository ackQueueRepository, IFixEngine fixEngine)
         {
             _ackQueueRepository = ackQueueRepository ?? throw new ArgumentNullException(nameof(ackQueueRepository));
             _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
 
-            // Auto-refresh timer (every 5 seconds)
             _refreshTimer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromSeconds(5)
             };
             _refreshTimer.Tick += async (s, e) => await RefreshStatisticsAsync();
+        }
+
+        partial void OnSelectedAckChanged(AckEntryViewModel? value)
+        {
+            OnPropertyChanged(nameof(CanSendSelected));
+        }
+
+        partial void OnFailedCountChanged(int value)
+        {
+            OnPropertyChanged(nameof(HasFailedAcks));
+        }
+
+        partial void OnPendingCountChanged(int value)
+        {
+            OnPropertyChanged(nameof(HasPendingAcks));
         }
 
         public async Task LoadAcksAsync(string sessionKey)
@@ -74,13 +104,14 @@ namespace FxFixGateway.UI.ViewModels
             try
             {
                 IsLoading = true;
+                StatusMessage = "Loading ACK queue...";
                 await LoadDataAsync();
-
-                // Start auto-refresh
+                StatusMessage = string.Empty;
                 _refreshTimer.Start();
             }
             catch (Exception ex)
             {
+                StatusMessage = $"Error: {ex.Message}";
                 System.Diagnostics.Debug.WriteLine($"Failed to load ACKs: {ex.Message}");
             }
             finally
@@ -93,18 +124,12 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (string.IsNullOrEmpty(_currentSessionKey)) return;
 
-            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] LoadDataAsync for SessionKey: '{_currentSessionKey}'");
-
-            // Hämta statistik
             var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
-            
-            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] Statistics: Pending={stats.PendingCount}, SentToday={stats.SentTodayCount}, Failed={stats.FailedCount}");
-            
+
             PendingCount = stats.PendingCount;
             SentTodayCount = stats.SentTodayCount;
             FailedCount = stats.FailedCount;
 
-            // Hämta ACKs med filter
             AckStatus? statusFilter = SelectedFilter switch
             {
                 "Pending" => AckStatus.Pending,
@@ -115,14 +140,14 @@ namespace FxFixGateway.UI.ViewModels
 
             var entries = await _ackQueueRepository.GetAcksBySessionAsync(_currentSessionKey, statusFilter, 200);
             var entryList = entries.ToList();
-            
-            //System.Diagnostics.Debug.WriteLine($"[AckQueueViewModel] GetAcksBySessionAsync returned {entryList.Count} entries");
 
             Acks.Clear();
             foreach (var entry in entryList)
             {
                 Acks.Add(new AckEntryViewModel(entry));
             }
+
+            LastRefreshTime = DateTime.Now.ToString("HH:mm:ss");
         }
 
         private async Task RefreshStatisticsAsync()
@@ -133,7 +158,7 @@ namespace FxFixGateway.UI.ViewModels
             {
                 var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
 
-                // Only update on UI thread
+                // Use full namespace to avoid conflict with FxFixGateway.Application
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     var oldPending = PendingCount;
@@ -143,8 +168,8 @@ namespace FxFixGateway.UI.ViewModels
                     PendingCount = stats.PendingCount;
                     SentTodayCount = stats.SentTodayCount;
                     FailedCount = stats.FailedCount;
+                    LastRefreshTime = DateTime.Now.ToString("HH:mm:ss");
 
-                    // Refresh grid if ANY counter changed
                     if (oldPending != PendingCount || oldSentToday != SentTodayCount || oldFailed != FailedCount)
                     {
                         _ = LoadDataWithErrorHandlingAsync();
@@ -195,7 +220,14 @@ namespace FxFixGateway.UI.ViewModels
 
             try
             {
+                IsRetrying = true;
                 var failedAcks = Acks.Where(a => a.Status == AckStatus.Failed).ToList();
+
+                if (failedAcks.Count == 0)
+                {
+                    MessageBox.Show("No failed ACKs to retry.", "Info", MessageBoxButton.OK, MessageBoxImage.Information);
+                    return;
+                }
 
                 foreach (var ack in failedAcks)
                 {
@@ -210,6 +242,27 @@ namespace FxFixGateway.UI.ViewModels
             {
                 MessageBox.Show($"Failed to retry: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+            finally
+            {
+                IsRetrying = false;
+            }
+        }
+
+        [RelayCommand]
+        private async Task RetrySingleAsync(AckEntryViewModel? ack)
+        {
+            ack ??= SelectedAck;
+            if (ack == null || ack.Status != AckStatus.Failed) return;
+
+            try
+            {
+                await _ackQueueRepository.UpdateAckStatusAsync(ack.TradeId, AckStatus.Pending, null);
+                await RefreshAsync();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to retry: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         [RelayCommand]
@@ -217,7 +270,6 @@ namespace FxFixGateway.UI.ViewModels
         {
             if (SelectedAck == null || SelectedAck.Status != AckStatus.Pending) return;
 
-            // Validate InternTradeId before sending
             if (string.IsNullOrEmpty(SelectedAck.InternTradeId))
             {
                 MessageBox.Show(
@@ -231,14 +283,11 @@ namespace FxFixGateway.UI.ViewModels
 
             try
             {
-                // Bygg och skicka ACK-meddelande via gemensam utility
                 var arMessage = FixMessageBuilder.BuildTradeCaptureReportAck(SelectedAck.TradeReportId, SelectedAck.InternTradeId);
                 await _fixEngine.SendMessageAsync(_currentSessionKey!, arMessage);
 
-                // Uppdatera status
                 await _ackQueueRepository.UpdateAckStatusAsync(SelectedAck.TradeId, AckStatus.Sent, DateTime.UtcNow);
 
-                // Skriv workflow event
                 await _ackQueueRepository.InsertWorkflowEventAsync(
                     SelectedAck.TradeId,
                     "FIX_ACK",
@@ -270,7 +319,6 @@ namespace FxFixGateway.UI.ViewModels
             {
                 try
                 {
-                    // Markera som Failed (eller lägg till en Cancelled status)
                     await _ackQueueRepository.UpdateAckStatusAsync(SelectedAck.TradeId, AckStatus.Failed, null);
                     await RefreshAsync();
                 }
@@ -288,9 +336,6 @@ namespace FxFixGateway.UI.ViewModels
         }
     }
 
-    /// <summary>
-    /// ViewModel för en enskild ACK-post.
-    /// </summary>
     public partial class AckEntryViewModel : ObservableObject
     {
         private readonly AckEntry _entry;
@@ -309,16 +354,28 @@ namespace FxFixGateway.UI.ViewModels
         public DateTime? SentUtc => _entry.SentUtc;
 
         public string StatusText => Status.ToString();
-        public string CreatedFormatted => CreatedUtc.ToString("HH:mm:ss");
-        public string SentFormatted => SentUtc?.ToString("HH:mm:ss") ?? "--";
+        public string CreatedFormatted => CreatedUtc.ToLocalTime().ToString("HH:mm:ss");
+        public string SentFormatted => SentUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "--";
 
         public string StatusColor => Status switch
         {
-            AckStatus.Pending => "#FFF9C4",  // Yellow
-            AckStatus.Sent => "#C8E6C9",     // Green
-            AckStatus.Failed => "#FFCDD2",   // Red
+            AckStatus.Pending => "#FFF9C4",
+            AckStatus.Sent => "#C8E6C9",
+            AckStatus.Failed => "#FFCDD2",
             _ => "#FFFFFF"
         };
+
+        public string StatusIcon => Status switch
+        {
+            AckStatus.Pending => "â³",
+            AckStatus.Sent => "âœ“",
+            AckStatus.Failed => "âœ—",
+            _ => ""
+        };
+
+        public bool CanRetry => Status == AckStatus.Failed;
+        public bool CanSendNow => Status == AckStatus.Pending && !string.IsNullOrEmpty(InternTradeId);
+        public bool IsMissingInternTradeId => Status == AckStatus.Pending && string.IsNullOrEmpty(InternTradeId);
 
         public string WaitingTime
         {
@@ -326,6 +383,8 @@ namespace FxFixGateway.UI.ViewModels
             {
                 if (Status != AckStatus.Pending) return string.Empty;
                 var elapsed = DateTime.UtcNow - CreatedUtc;
+                if (elapsed.TotalMinutes >= 1)
+                    return $"waiting {(int)elapsed.TotalMinutes}m {elapsed.Seconds}s";
                 return $"waiting {(int)elapsed.TotalSeconds}s";
             }
         }

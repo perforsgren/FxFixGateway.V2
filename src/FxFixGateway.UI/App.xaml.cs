@@ -176,8 +176,8 @@ namespace FxFixGateway.UI
 
                 var parsers = new List<IInboundMessageParser>
                 {
-                    new VolbrokerFixAeParser(lookupRepo)
-                    //new FenicsFixAeParser(lookupRepo)
+                    new VolbrokerFixAeParser(lookupRepo),
+                    new FenicsFixAeParser(lookupRepo)
                 };
 
                 return new MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);

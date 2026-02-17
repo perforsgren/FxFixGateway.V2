@@ -69,8 +69,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private string BuildConfigFileContent(List<SessionConfiguration> configurations)
         {
             var sb = new StringBuilder();
-
-            // Ta första config för DEFAULT-värden (alla borde ha samma)
             var firstConfig = configurations.First();
 
             // [DEFAULT] section
@@ -85,42 +83,29 @@ namespace FxFixGateway.Infrastructure.QuickFix
             sb.AppendLine($"FileLogPath={_fileLogPath}");
             sb.AppendLine();
 
-            // Data Dictionary
-            sb.AppendLine("UseDataDictionary=Y");
-            if (!string.IsNullOrEmpty(_dataDictionaryPath) && File.Exists(_dataDictionaryPath))
-            {
-                sb.AppendLine($"DataDictionary={_dataDictionaryPath}");
-            }
-            else if (!string.IsNullOrEmpty(firstConfig.DataDictionaryFile))
-            {
-                sb.AppendLine($"DataDictionary={firstConfig.DataDictionaryFile}");
-            }
-            sb.AppendLine();
-
-            // Validation
+            // Validation - stäng av allt
+            sb.AppendLine("UseDataDictionary=N");
             sb.AppendLine("ValidateFieldsOutOfOrder=N");
             sb.AppendLine("ValidateUserDefinedFields=N");
-            sb.AppendLine();
-
             sb.AppendLine("AllowUnknownMsgFields=Y");
-            sb.AppendLine();
-
+            sb.AppendLine("CheckCompID=N");
             sb.AppendLine("CheckLatency=N");
             sb.AppendLine("ResetOnLogon=Y");
             sb.AppendLine("ResetOnLogout=Y");
             sb.AppendLine("ResetOnDisconnect=Y");
             sb.AppendLine();
 
-            // [SESSION] sections - en per konfiguration
+            // [SESSION] sections
             foreach (var config in configurations)
             {
                 sb.AppendLine("[SESSION]");
                 sb.AppendLine($"SenderCompID={config.SenderCompId}");
                 sb.AppendLine($"TargetCompID={config.TargetCompId}");
-                sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");  // Per-session HeartBtInt
+                sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");
+                sb.AppendLine("UseDataDictionary=N");
                 sb.AppendLine();
 
-                // För SSL Tunnel - anslut till localhost, ingen SSL i QuickFIX
+                // Connection settings
                 if (config.UseSSLTunnel && config.SslLocalPort.HasValue)
                 {
                     sb.AppendLine($"SocketConnectHost=127.0.0.1");
@@ -129,12 +114,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 }
                 else
                 {
-                    // Normal anslutning (med eller utan native QuickFIX SSL)
                     sb.AppendLine($"SocketConnectHost={config.Host}");
                     sb.AppendLine($"SocketConnectPort={config.Port}");
                     sb.AppendLine();
 
-                    // SSL per session om UseSsl=true
                     if (config.UseSsl)
                     {
                         sb.AppendLine("SSLEnable=Y");

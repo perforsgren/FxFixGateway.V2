@@ -220,9 +220,22 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                 case "3": // Reject - session level reject
                     var rejectReason = GetRejectReason(message);
+                    
+                    // ⭐ LÄGG TILL: Logga vilken MsgType som rejectades
+                    var rejectedMsgType = message.IsSetField(QF.Fields.Tags.RefMsgType) 
+                        ? message.GetString(QF.Fields.Tags.RefMsgType) 
+                        : "?";
+                    var refSeqNum = message.IsSetField(QF.Fields.Tags.RefSeqNum) 
+                        ? message.GetInt(QF.Fields.Tags.RefSeqNum) 
+                        : -1;
+                    
+                    var detailedReason = $"Session Reject: MsgType={rejectedMsgType}, RefSeqNum={refSeqNum}, Reason={rejectReason}";
+                    
+                    System.Diagnostics.Debug.WriteLine($"[FromAdmin] {sessionKey} {detailedReason}");
+                    
                     ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(
                         sessionKey,
-                        $"Session Reject received: {rejectReason}"));
+                        detailedReason));
                     break;
 
                 case "4": // SequenceReset
@@ -256,6 +269,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 try
                 {
                     var venueCode = GetVenueCode(sessionKey);
+                    
+                    // ⭐ DEBUG: Lägg till denna rad
+                    System.Diagnostics.Debug.WriteLine($"[FromApp] Processing AE for session {sessionKey}, venue {venueCode}");
 
                     var entity = new MessageIn
                     {
@@ -276,24 +292,50 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     else if (venueCode == "FENICS")
                     {
                         EnrichFenicsAE(entity, message);
+                        
+                        // ⭐ DEBUG: Lägg till denna rad
+                        System.Diagnostics.Debug.WriteLine($"[FromApp] Fenics AE enriched. SourceMessageKey={entity.SourceMessageKey}, ExternalTradeKey={entity.ExternalTradeKey}");
                     }
 
                     var messageInId = _messageInService.InsertMessage(entity);
+                    
+                    // ⭐ DEBUG: Lägg till denna rad
+                    System.Diagnostics.Debug.WriteLine($"[FromApp] MessageIn inserted with ID {messageInId}");
 
                     // Trigger parsing immediately
                     if (_orchestrator != null)
                     {
+                        // ⭐ DEBUG: Lägg till denna rad
+                        System.Diagnostics.Debug.WriteLine($"[FromApp] Calling orchestrator.ProcessMessage({messageInId})");
+                        
                         _orchestrator.ProcessMessage(messageInId);
+                        
+                        // ⭐ DEBUG: Lägg till denna rad
+                        System.Diagnostics.Debug.WriteLine($"[FromApp] Orchestrator.ProcessMessage completed for {messageInId}");
+                    }
+                    else
+                    {
+                        // ⭐ DEBUG: Lägg till denna rad
+                        System.Diagnostics.Debug.WriteLine("[FromApp] WARNING: _orchestrator is NULL - trade will NOT be processed!");
                     }
                 }
                 catch (Exception ex)
                 {
+                    // ⭐ FÖRBÄTTRAD ERROR-logging
+                    System.Diagnostics.Debug.WriteLine($"[FromApp] EXCEPTION processing AE for {sessionKey}: {ex.Message}");
+                    System.Diagnostics.Debug.WriteLine($"[FromApp] Stack trace: {ex.StackTrace}");
+                    
                     // Log error but don't crash FIX session
                     ErrorOccurred?.Invoke(this, new ErrorOccurredEvent(
                         sessionKey,
                         $"Failed to process MessageIn: {ex.Message}",
                         ex));
                 }
+            }
+            else if (msgType == "AE" && _messageInService == null)
+            {
+                // ⭐ DEBUG: Lägg till denna rad
+                System.Diagnostics.Debug.WriteLine($"[FromApp] WARNING: Received AE for {sessionKey} but _messageInService is NULL!");
             }
         }
 
@@ -338,12 +380,35 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private void EnrichFenicsAE(MessageIn entity, QF.Message message)
         {
             // KRITISKT för ACK: SourceMessageKey måste fyllas i
-            // TODO: Fenics använder troligen samma tags som Volbroker, men verifiera när du får riktiga AE
-            entity.SourceMessageKey = TryGetField(message, 818) ?? TryGetField(message, 571);
-            entity.ExternalTradeKey = TryGetField(message, 818);
-
-            // TODO: Enrichment för debugging (justera efter Fenics faktiska tags)
-            entity.InstrumentCode = TryGetField(message, 55); // Symbol
+            entity.SourceMessageKey = TryGetField(message, 571); // TradeReportID
+            entity.ExternalTradeKey = TryGetField(message, 117); // Fenics Trade ID
+            
+            // Instrument
+            entity.InstrumentCode = TryGetField(message, 55); // Symbol (EURUSD)
+            
+            // ⭐ NYTT: Options-specifika fält (optional - för debugging/logging)
+            var cfiCode = TryGetField(message, 461); // HFTAVP = Option
+            var strike = TryGetField(message, 612);  // Strike price
+            var expiry = TryGetField(message, 611);  // Expiry date
+            var premium = TryGetField(message, 6034); // Premium amount
+            
+            // Logga om det är en option
+            if (cfiCode?.StartsWith("HF") == true) // HF = Option i CFI-kod
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[EnrichFenicsAE] FX Option: {entity.InstrumentCode}, " +
+                    $"Strike={strike}, Expiry={expiry}, Premium={premium}");
+            }
+            
+            // UTI för regulatorisk rapportering (optional)
+            var optionUTI = TryGetField(message, 8524); // Leg 1 UTI
+            var hedgeUTI = TryGetField(message, 8526);  // Leg 2 UTI
+            
+            if (!string.IsNullOrEmpty(optionUTI) || !string.IsNullOrEmpty(hedgeUTI))
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[EnrichFenicsAE] UTI: Option={optionUTI}, Hedge={hedgeUTI}");
+            }
         }
 
 
