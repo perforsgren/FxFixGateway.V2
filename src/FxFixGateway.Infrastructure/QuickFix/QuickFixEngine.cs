@@ -162,10 +162,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             var storeFactory = new global::QuickFix.Store.FileStoreFactory(_settings);
             var logFactory = new global::QuickFix.Logger.FileLogFactory(_settings);
-            
-            // ⭐ ÄNDRAT: Använd LenientMessageFactory istället för DefaultMessageFactory
-            // Detta förhindrar "Tag appears more than once" reject för multi-leg messages (t.ex. Fenics FX Options)
-            var messageFactory = new LenientMessageFactory();
+            var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
             _logger?.LogInformation("Creating SocketInitiator...");
             _initiator = new global::QuickFix.Transport.SocketInitiator(

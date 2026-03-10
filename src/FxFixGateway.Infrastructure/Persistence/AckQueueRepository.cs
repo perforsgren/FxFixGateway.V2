@@ -22,19 +22,16 @@ namespace FxFixGateway.Infrastructure.Persistence
             _connectionString = connectionString;
         }
 
-        /// <summary>
-        /// Gets ACKs that are READY_TO_ACK (have InternalTradeId set by downstream system).
-        /// Does NOT include NEW status - those are still waiting for processing.
-        /// </summary>
         public async Task<IEnumerable<PendingAck>> GetPendingAcksAsync(int maxCount = 100)
         {
             var result = new List<PendingAck>();
 
             var sql = @"
                 SELECT
-                    tsl.StpTradeId AS TradeId,
+                    tsl.StpTradeId         AS TradeId,
                     m.SessionKey,
-                    m.SourceMessageKey AS TradeReportId,
+                    m.SourceMessageKey     AS TradeReportId,
+                    m.ExternalTradeKey,
                     tsl.AckInternalTradeId AS InternTradeId,
                     tsl.CreatedUtc
                 FROM tradesystemlink tsl
@@ -58,23 +55,82 @@ namespace FxFixGateway.Infrastructure.Persistence
 
                 while (await reader.ReadAsync())
                 {
-                    var ack = new PendingAck(
+                    result.Add(new PendingAck(
                         tradeId: reader.GetInt64("TradeId"),
                         sessionKey: reader.GetString("SessionKey"),
                         tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
-                            ? string.Empty
-                            : reader.GetString("TradeReportId"),
+                            ? string.Empty : reader.GetString("TradeReportId"),
+                        externalTradeKey: reader.IsDBNull(reader.GetOrdinal("ExternalTradeKey"))
+                            ? string.Empty : reader.GetString("ExternalTradeKey"),
                         internTradeId: reader.IsDBNull(reader.GetOrdinal("InternTradeId"))
-                            ? string.Empty
-                            : reader.GetString("InternTradeId"),
+                            ? string.Empty : reader.GetString("InternTradeId"),
                         createdUtc: reader.GetDateTime("CreatedUtc")
-                    );
-                    result.Add(ack);
+                    ));
                 }
             }
             catch (MySqlException ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] GetPendingAcksAsync error: {ex.Number} - {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] Unexpected error: {ex.Message}");
+            }
+
+            return result;
+        }
+
+        public async Task<IEnumerable<PendingAck>> GetRejectedAcksAsync(int maxCount = 100)
+        {
+            var result = new List<PendingAck>();
+
+            var sql = @"
+                SELECT
+                    tsl.StpTradeId     AS TradeId,
+                    m.SessionKey,
+                    m.SourceMessageKey AS TradeReportId,
+                    m.ExternalTradeKey,
+                    tsl.LastError,
+                    tsl.CreatedUtc
+                FROM tradesystemlink tsl
+                INNER JOIN trade t ON t.StpTradeId = tsl.StpTradeId
+                INNER JOIN messagein m ON m.MessageInId = t.MessageInId
+                WHERE tsl.SystemCode = 'FIX_ACK'
+                  AND tsl.Status = @StatusRejected
+                ORDER BY tsl.CreatedUtc ASC
+                LIMIT @MaxCount;";
+
+            try
+            {
+                await using var connection = new MySqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                await using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@MaxCount", maxCount);
+                command.Parameters.AddWithValue("@StatusRejected", DbAckStatus.AckRejected);
+
+                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+
+                while (await reader.ReadAsync())
+                {
+                    result.Add(new PendingAck(
+                        tradeId: reader.GetInt64("TradeId"),
+                        sessionKey: reader.GetString("SessionKey"),
+                        tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
+                            ? string.Empty : reader.GetString("TradeReportId"),
+                        externalTradeKey: reader.IsDBNull(reader.GetOrdinal("ExternalTradeKey"))
+                            ? string.Empty : reader.GetString("ExternalTradeKey"),
+                        internTradeId: string.Empty,
+                        createdUtc: reader.GetDateTime("CreatedUtc"),
+                        isReject: true,
+                        rejectReason: reader.IsDBNull(reader.GetOrdinal("LastError"))
+                            ? null : reader.GetString("LastError")
+                    ));
+                }
+            }
+            catch (MySqlException ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[AckQueueRepository] GetRejectedAcksAsync error: {ex.Number} - {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -110,6 +166,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                     AckStatus.Pending => " AND tsl.Status IN (@StatusNew, @StatusReady)",
                     AckStatus.Sent => " AND tsl.Status = @StatusSent",
                     AckStatus.Failed => " AND tsl.Status = @StatusError",
+                    AckStatus.Rejected => " AND tsl.Status = @StatusRejectSent",
                     _ => ""
                 };
             }
@@ -128,6 +185,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 command.Parameters.AddWithValue("@StatusReady", DbAckStatus.ReadyToAck);
                 command.Parameters.AddWithValue("@StatusSent", DbAckStatus.AckSent);
                 command.Parameters.AddWithValue("@StatusError", DbAckStatus.AckError);
+                command.Parameters.AddWithValue("@StatusRejectSent", DbAckStatus.AckRejectSent);
 
                 await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
@@ -140,29 +198,29 @@ namespace FxFixGateway.Infrastructure.Persistence
                         DbAckStatus.ReadyToAck => AckStatus.Pending,
                         DbAckStatus.AckSent => AckStatus.Sent,
                         DbAckStatus.AckError => AckStatus.Failed,
+                        DbAckStatus.AckRejected => AckStatus.Pending, // väntar fortfarande på att AR skickas
+                        DbAckStatus.AckRejectSent => AckStatus.Rejected,
                         _ => AckStatus.Pending
                     };
 
                     DateTime? sentUtc = null;
-                    if (status == AckStatus.Sent && !reader.IsDBNull(reader.GetOrdinal("LastStatusUtc")))
+                    if ((status == AckStatus.Sent || status == AckStatus.Rejected)
+                        && !reader.IsDBNull(reader.GetOrdinal("LastStatusUtc")))
                     {
                         sentUtc = reader.GetDateTime("LastStatusUtc");
                     }
 
-                    var entry = new AckEntry(
+                    result.Add(new AckEntry(
                         tradeId: reader.GetInt64("StpTradeId"),
                         sessionKey: reader.GetString("SessionKey"),
                         tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
-                            ? string.Empty
-                            : reader.GetString("TradeReportId"),
+                            ? string.Empty : reader.GetString("TradeReportId"),
                         internTradeId: reader.IsDBNull(reader.GetOrdinal("AckInternalTradeId"))
-                            ? string.Empty
-                            : reader.GetString("AckInternalTradeId"),
+                            ? string.Empty : reader.GetString("AckInternalTradeId"),
                         status: status,
                         createdUtc: reader.GetDateTime("CreatedUtc"),
                         sentUtc: sentUtc
-                    );
-                    result.Add(entry);
+                    ));
                 }
             }
             catch (MySqlException ex)
@@ -184,6 +242,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 AckStatus.Pending => DbAckStatus.ReadyToAck,
                 AckStatus.Sent => DbAckStatus.AckSent,
                 AckStatus.Failed => DbAckStatus.AckError,
+                AckStatus.Rejected => DbAckStatus.AckRejectSent,
                 _ => DbAckStatus.ReadyToAck
             };
 
@@ -219,7 +278,7 @@ namespace FxFixGateway.Infrastructure.Persistence
         {
             var sql = @"
                 SELECT 
-                    SUM(CASE WHEN tsl.Status IN (@StatusNew, @StatusReady) THEN 1 ELSE 0 END) AS PendingCount,
+                    SUM(CASE WHEN tsl.Status IN (@StatusNew, @StatusReady, @StatusAckRejected) THEN 1 ELSE 0 END) AS PendingCount,
                     SUM(CASE WHEN tsl.Status = @StatusSent AND DATE(tsl.LastStatusUtc) = CURDATE() THEN 1 ELSE 0 END) AS SentTodayCount,
                     SUM(CASE WHEN tsl.Status = @StatusError THEN 1 ELSE 0 END) AS FailedCount
                 FROM tradesystemlink tsl
@@ -237,6 +296,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@StatusNew", DbAckStatus.New);
                 command.Parameters.AddWithValue("@StatusReady", DbAckStatus.ReadyToAck);
+                command.Parameters.AddWithValue("@StatusAckRejected", DbAckStatus.AckRejected);
                 command.Parameters.AddWithValue("@StatusSent", DbAckStatus.AckSent);
                 command.Parameters.AddWithValue("@StatusError", DbAckStatus.AckError);
 

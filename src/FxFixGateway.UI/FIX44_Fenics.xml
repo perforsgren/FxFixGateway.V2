@@ -1,0 +1,597 @@
+<?xml version="1.0" encoding="utf-8"?>
+<fix major="4" minor="4" type="FIX">
+	<header>
+		<field name="BeginString" required="Y"/>
+		<field name="BodyLength" required="Y"/>
+		<field name="MsgType" required="Y"/>
+		<field name="SenderCompID" required="Y"/>
+		<field name="TargetCompID" required="Y"/>
+		<field name="MsgSeqNum" required="Y"/>
+		<field name="SendingTime" required="Y"/>
+		<field name="PossDupFlag" required="N"/>
+		<field name="PossResend" required="N"/>
+		<field name="OrigSendingTime" required="N"/>
+		<field name="SenderSubID" required="N"/>
+		<field name="TargetSubID" required="N"/>
+	</header>
+	<trailer>
+		<field name="CheckSum" required="Y"/>
+	</trailer>
+	<messages>
+		<message name="Heartbeat" msgtype="0" msgcat="admin">
+			<field name="TestReqID" required="N"/>
+		</message>
+		<message name="TestRequest" msgtype="1" msgcat="admin">
+			<field name="TestReqID" required="Y"/>
+		</message>
+		<message name="ResendRequest" msgtype="2" msgcat="admin">
+			<field name="BeginSeqNo" required="Y"/>
+			<field name="EndSeqNo" required="Y"/>
+		</message>
+		<message name="Reject" msgtype="3" msgcat="admin">
+			<field name="RefSeqNum" required="Y"/>
+			<field name="RefTagID" required="N"/>
+			<field name="RefMsgType" required="N"/>
+			<field name="SessionRejectReason" required="N"/>
+			<field name="Text" required="N"/>
+		</message>
+		<message name="SequenceReset" msgtype="4" msgcat="admin">
+			<field name="GapFillFlag" required="N"/>
+			<field name="NewSeqNo" required="Y"/>
+		</message>
+		<message name="Logout" msgtype="5" msgcat="admin">
+			<field name="Text" required="N"/>
+		</message>
+		<message name="Logon" msgtype="A" msgcat="admin">
+			<field name="EncryptMethod" required="Y"/>
+			<field name="HeartBtInt" required="Y"/>
+			<field name="ResetSeqNumFlag" required="N"/>
+			<field name="Username" required="N"/>
+			<field name="Password" required="N"/>
+		</message>
+		<message name="TradeCaptureReport" msgtype="AE" msgcat="app">
+			<field name="TradeReportID" required="N"/>
+			<field name="TradeReportTransType" required="N"/>
+			<field name="TradeReportType" required="N"/>
+			<field name="TrdType" required="N"/>
+			<field name="SecondaryTrdType" required="N"/>
+			<field name="Symbol" required="N"/>
+			<field name="SecurityID" required="N"/>
+			<field name="SecurityIDSource" required="N"/>
+			<field name="SecurityType" required="N"/>
+			<field name="CFICode" required="N"/>
+			<field name="MaturityMonthYear" required="N"/>
+			<field name="MaturityDate" required="N"/>
+			<field name="StrikePrice" required="N"/>
+			<field name="StrikeCurrency" required="N"/>
+			<field name="PutOrCall" required="N"/>
+			<field name="OptAttribute" required="N"/>
+			<field name="ContractMultiplier" required="N"/>
+			<field name="SecurityExchange" required="N"/>
+			<field name="ExecID" required="N"/>
+			<field name="SecondaryExecID" required="N"/>
+			<field name="TradeReportRefID" required="N"/>
+			<field name="SecondaryTradeReportRefID" required="N"/>
+			<field name="SecondaryTradeReportID" required="N"/>
+			<field name="ExecType" required="N"/>
+			<field name="PreviouslyReported" required="N"/>
+			<field name="LastQty" required="N"/>
+			<field name="LastPx" required="N"/>
+			<field name="Currency" required="N"/>
+			<field name="SettlCurrency" required="N"/>
+			<field name="LastSpotRate" required="N"/>
+			<field name="LastForwardPoints" required="N"/>
+			<field name="TradeDate" required="N"/>
+			<field name="TransactTime" required="N"/>
+			<field name="SettlDate" required="N"/>
+			<field name="SettlType" required="N"/>
+			<field name="MatchStatus" required="N"/>
+			<field name="MatchType" required="N"/>
+			<field name="ClearingBusinessDate" required="N"/>
+			<field name="TrdMatchID" required="N"/>
+			<field name="TradeHandlingInstr" required="N"/>
+			<field name="CopyMsgIndicator" required="N"/>
+			<field name="PublishTrdIndicator" required="N"/>
+			<field name="MultiLegReportingType" required="N"/>
+			<field name="TotNumTradeReports" required="N"/>
+			<field name="TradePublishIndicator" required="N"/>
+			<field name="TrdRptStatus" required="N"/>
+			<field name="QuoteID" required="N"/>
+			<field name="Text" required="N"/>
+			<!-- Fenics custom tags at message level -->
+			<field name="Fenics6030" required="N"/>
+			<field name="Fenics6139" required="N"/>
+			<field name="Fenics7705" required="N"/>
+			<field name="Fenics8504" required="N"/>
+			<field name="Fenics8505" required="N"/>
+			<field name="Fenics8506" required="N"/>
+			<field name="Fenics8507" required="N"/>
+			<field name="Fenics8520" required="N"/>
+			<field name="Fenics9126" required="N"/>
+			<field name="Fenics9246" required="N"/>
+			<field name="Fenics9247" required="N"/>
+			<field name="Fenics9248" required="N"/>
+			<field name="Fenics9250" required="N"/>
+			<field name="Fenics9536" required="N"/>
+			<!-- Keep broad range for any other custom tags at message level -->
+			<field name="Fenics8500" required="N"/>
+			<field name="Fenics8501" required="N"/>
+			<field name="Fenics8502" required="N"/>
+			<field name="Fenics8503" required="N"/>
+			<field name="Fenics8508" required="N"/>
+			<field name="Fenics8509" required="N"/>
+			<field name="Fenics8510" required="N"/>
+			<field name="Fenics8511" required="N"/>
+			<field name="Fenics8512" required="N"/>
+			<field name="Fenics8513" required="N"/>
+			<field name="Fenics8514" required="N"/>
+			<field name="Fenics8515" required="N"/>
+			<field name="Fenics8516" required="N"/>
+			<field name="Fenics8517" required="N"/>
+			<field name="Fenics8518" required="N"/>
+			<field name="Fenics8519" required="N"/>
+			<field name="Fenics8521" required="N"/>
+			<field name="Fenics8522" required="N"/>
+			<field name="Fenics8523" required="N"/>
+			<field name="Fenics8524" required="N"/>
+			<field name="Fenics8525" required="N"/>
+			<field name="Fenics8526" required="N"/>
+			<field name="Fenics8527" required="N"/>
+			<field name="Fenics8528" required="N"/>
+			<field name="Fenics8529" required="N"/>
+			<field name="Fenics8530" required="N"/>
+			<field name="Fenics6034" required="N"/>
+			<field name="Fenics6035" required="N"/>
+			<field name="Fenics6036" required="N"/>
+			<field name="Fenics6037" required="N"/>
+			<field name="Fenics6038" required="N"/>
+			<field name="Fenics6039" required="N"/>
+			<field name="Fenics6040" required="N"/>
+			<group name="NoLegs" required="N">
+				<field name="LegSymbol" required="N"/>
+				<field name="LegSymbolSfx" required="N"/>
+				<field name="LegSecurityID" required="N"/>
+				<field name="LegSecurityIDSource" required="N"/>
+				<field name="LegCFICode" required="N"/>
+				<field name="LegSecurityType" required="N"/>
+				<field name="LegSecurityExchange" required="N"/>
+				<field name="LegMaturityMonthYear" required="N"/>
+				<field name="LegMaturityDate" required="N"/>
+				<field name="LegStrikePrice" required="N"/>
+				<field name="LegStrikeCurrency" required="N"/>
+				<field name="LegOptAttribute" required="N"/>
+				<field name="LegContractMultiplier" required="N"/>
+				<field name="LegRatioQty" required="N"/>
+				<field name="LegSide" required="N"/>
+				<field name="LegCurrency" required="N"/>
+				<field name="LegQty" required="N"/>
+				<field name="LegSwapType" required="N"/>
+				<field name="LegPositionEffect" required="N"/>
+				<field name="LegPrice" required="N"/>
+				<field name="LegLastPx" required="N"/>
+				<field name="LegSettlDate" required="N"/>
+				<field name="LegSettlType" required="N"/>
+				<field name="LegRefID" required="N"/>
+				<field name="LegPutOrCall" required="N"/>
+				<field name="LegUSIShortCode" required="N"/>
+				<field name="AggressorIndicator" required="N"/>
+				<field name="DeliveryDate" required="N"/>
+				<!-- Standard FIX tags that Fenics sends per-leg -->
+				<field name="Currency" required="N"/>
+				<field name="ContractMultiplier" required="N"/>
+				<field name="TransferReason" required="N"/>
+				<group name="NoLegSecurityAltID" required="N">
+					<field name="LegSecurityAltID" required="N"/>
+					<field name="LegSecurityAltIDSource" required="N"/>
+				</group>
+				<!-- Fenics custom tags within Leg group -->
+				<field name="Fenics593" required="N"/>
+				<field name="Fenics714" required="N"/>
+				<field name="Fenics5020" required="N"/>
+				<field name="Fenics5191" required="N"/>
+				<field name="Fenics5235" required="N"/>
+				<field name="Fenics5678" required="N"/>
+				<field name="Fenics5830" required="N"/>				
+				<field name="Fenics6034" required="N"/>
+				<field name="Fenics6035" required="N"/>
+				<field name="Fenics6036" required="N"/>
+				<field name="Fenics6037" required="N"/>
+				<field name="Fenics6038" required="N"/>
+				<field name="Fenics6039" required="N"/>
+				<field name="Fenics6040" required="N"/>
+				<field name="Fenics6215" required="N"/>
+				<field name="Fenics6714" required="N"/>
+				<field name="Fenics8500" required="N"/>
+				<field name="Fenics8501" required="N"/>
+				<field name="Fenics8502" required="N"/>
+				<field name="Fenics8503" required="N"/>
+				<field name="Fenics8504" required="N"/>
+				<field name="Fenics8505" required="N"/>
+				<field name="Fenics8506" required="N"/>
+				<field name="Fenics8507" required="N"/>
+				<field name="Fenics8508" required="N"/>
+				<field name="Fenics8509" required="N"/>
+				<field name="Fenics8510" required="N"/>
+				<field name="Fenics8511" required="N"/>
+				<field name="Fenics8512" required="N"/>
+				<field name="Fenics8513" required="N"/>
+				<field name="Fenics8514" required="N"/>
+				<field name="Fenics8515" required="N"/>
+				<field name="Fenics8516" required="N"/>
+				<field name="Fenics8517" required="N"/>
+				<field name="Fenics8518" required="N"/>
+				<field name="Fenics8519" required="N"/>
+				<field name="Fenics8520" required="N"/>
+				<field name="Fenics8521" required="N"/>
+				<field name="Fenics8522" required="N"/>
+				<field name="Fenics8523" required="N"/>
+				<field name="Fenics8524" required="N"/>
+				<field name="Fenics8525" required="N"/>
+				<field name="Fenics8526" required="N"/>
+				<field name="Fenics8527" required="N"/>
+				<field name="Fenics8528" required="N"/>
+				<field name="Fenics8529" required="N"/>
+				<field name="Fenics8530" required="N"/>
+				<field name="Fenics9019" required="N"/>
+				<field name="Fenics9034" required="N"/>
+				<field name="Fenics9073" required="N"/>
+				<field name="Fenics9115" required="N"/>
+				<field name="Fenics9125" required="N"/>
+				<field name="Fenics9904" required="N"/>
+			</group>
+			<group name="NoUnderlyings" required="N">
+				<field name="UnderlyingSymbol" required="N"/>
+				<field name="UnderlyingSymbolSfx" required="N"/>
+				<field name="UnderlyingSecurityID" required="N"/>
+				<field name="UnderlyingSecurityIDSource" required="N"/>
+				<field name="UnderlyingCFICode" required="N"/>
+				<field name="UnderlyingSecurityType" required="N"/>
+				<field name="UnderlyingSecurityExchange" required="N"/>
+				<field name="UnderlyingMaturityMonthYear" required="N"/>
+				<field name="UnderlyingMaturityDate" required="N"/>
+				<field name="UnderlyingStrikePrice" required="N"/>
+				<field name="UnderlyingStrikeCurrency" required="N"/>
+				<field name="UnderlyingPutOrCall" required="N"/>
+				<field name="UnderlyingQty" required="N"/>
+				<field name="UnderlyingPx" required="N"/>
+				<field name="UnderlyingDirtyPrice" required="N"/>
+				<field name="UnderlyingEndPrice" required="N"/>
+				<field name="UnderlyingStartValue" required="N"/>
+				<field name="UnderlyingCurrentValue" required="N"/>
+				<field name="UnderlyingEndValue" required="N"/>
+				<!-- Standard tags used in Underlyings by Fenics -->
+				<field name="TrdSubType" required="N"/>
+				<field name="NoTrdRepIndicators" required="N"/>
+				<field name="TrdRepIndicator" required="N"/>
+				<!-- Fenics custom tags within Underlying group -->
+				<field name="Fenics464" required="N"/>
+				<field name="Fenics768" required="N"/>
+				<field name="Fenics769" required="N"/>
+				<field name="Fenics770" required="N"/>
+				<field name="Fenics6036" required="N"/>
+				<field name="Fenics6057" required="N"/>
+				<field name="Fenics6426" required="N"/>
+				<field name="Fenics6666" required="N"/>
+				<field name="Fenics7931" required="N"/>
+				<field name="Fenics8500" required="N"/>
+				<field name="Fenics8501" required="N"/>
+				<field name="Fenics8502" required="N"/>
+				<field name="Fenics8503" required="N"/>
+				<field name="Fenics8504" required="N"/>
+				<field name="Fenics8505" required="N"/>
+				<field name="Fenics8508" required="N"/>
+				<field name="Fenics8517" required="N"/>
+				<field name="Fenics8526" required="N"/>
+				<field name="Fenics9074" required="N"/>
+				<field name="Fenics10604" required="N"/>
+				<field name="Fenics10605" required="N"/>
+				<field name="Fenics10606" required="N"/>
+				<field name="Fenics10608" required="N"/>
+				<field name="Fenics10609" required="N"/>
+			</group>
+			<group name="NoSides" required="N">
+				<field name="Side" required="N"/>
+				<field name="OrderID" required="N"/>
+				<field name="ClOrdID" required="N"/>
+				<field name="Account" required="N"/>
+				<field name="AccountType" required="N"/>
+				<field name="AcctIDSource" required="N"/>
+				<field name="ProcessCode" required="N"/>
+				<field name="OddLot" required="N"/>
+				<field name="TradeInputSource" required="N"/>
+				<field name="TradeInputDevice" required="N"/>
+				<field name="ComplianceID" required="N"/>
+				<field name="AggressorIndicator" required="N"/>
+				<field name="Text" required="N"/>
+				<!-- Fenics custom tags within Side group -->
+				<field name="Fenics8500" required="N"/>
+				<field name="Fenics8501" required="N"/>
+				<field name="Fenics8502" required="N"/>
+				<field name="Fenics8503" required="N"/>
+				<field name="Fenics8504" required="N"/>
+				<field name="Fenics8505" required="N"/>
+				<field name="Fenics8510" required="N"/>
+				<field name="Fenics9126" required="N"/>
+				<group name="NoPartyIDs" required="N">
+					<field name="PartyID" required="N"/>
+					<field name="PartyIDSource" required="N"/>
+					<field name="PartyRole" required="N"/>
+					<group name="NoPartySubIDs" required="N">
+						<field name="PartySubID" required="N"/>
+						<field name="PartySubIDType" required="N"/>
+					</group>
+				</group>
+			</group>
+		</message>
+		<message name="TradeCaptureReportAck" msgtype="AR" msgcat="app">
+			<field name="TradeReportID" required="N"/>
+			<field name="ExecID" required="N"/>
+			<field name="TradeReportRefID" required="N"/>
+			<field name="SecondaryTradeReportRefID" required="N"/>
+			<field name="TrdRptStatus" required="N"/>
+			<field name="TradeReportType" required="N"/>
+			<field name="Text" required="N"/>
+		</message>
+	</messages>
+	<fields>
+		<!-- Header/Trailer -->
+		<field number="8" name="BeginString" type="STRING"/>
+		<field number="9" name="BodyLength" type="LENGTH"/>
+		<field number="10" name="CheckSum" type="STRING"/>
+		<field number="34" name="MsgSeqNum" type="SEQNUM"/>
+		<field number="35" name="MsgType" type="STRING"/>
+		<field number="43" name="PossDupFlag" type="BOOLEAN"/>
+		<field number="49" name="SenderCompID" type="STRING"/>
+		<field number="50" name="SenderSubID" type="STRING"/>
+		<field number="52" name="SendingTime" type="UTCTIMESTAMP"/>
+		<field number="56" name="TargetCompID" type="STRING"/>
+		<field number="57" name="TargetSubID" type="STRING"/>
+		<field number="97" name="PossResend" type="BOOLEAN"/>
+		<field number="122" name="OrigSendingTime" type="UTCTIMESTAMP"/>
+
+		<!-- Admin -->
+		<field number="7" name="BeginSeqNo" type="SEQNUM"/>
+		<field number="16" name="EndSeqNo" type="SEQNUM"/>
+		<field number="36" name="NewSeqNo" type="SEQNUM"/>
+		<field number="45" name="RefSeqNum" type="SEQNUM"/>
+		<field number="58" name="Text" type="STRING"/>
+		<field number="98" name="EncryptMethod" type="INT"/>
+		<field number="108" name="HeartBtInt" type="INT"/>
+		<field number="112" name="TestReqID" type="STRING"/>
+		<field number="123" name="GapFillFlag" type="BOOLEAN"/>
+		<field number="141" name="ResetSeqNumFlag" type="BOOLEAN"/>
+		<field number="371" name="RefTagID" type="INT"/>
+		<field number="372" name="RefMsgType" type="STRING"/>
+		<field number="373" name="SessionRejectReason" type="INT"/>
+		<field number="553" name="Username" type="STRING"/>
+		<field number="554" name="Password" type="STRING"/>
+
+		<!-- Common Trade fields -->
+		<field number="1" name="Account" type="STRING"/>
+		<field number="6" name="AvgPx" type="PRICE"/>
+		<field number="11" name="ClOrdID" type="STRING"/>
+		<field number="14" name="CumQty" type="QTY"/>
+		<field number="15" name="Currency" type="CURRENCY"/>
+		<field number="17" name="ExecID" type="STRING"/>
+		<field number="22" name="SecurityIDSource" type="STRING"/>
+		<field number="31" name="LastPx" type="PRICE"/>
+		<field number="32" name="LastQty" type="QTY"/>
+		<field number="37" name="OrderID" type="STRING"/>
+		<field number="38" name="OrderQty" type="QTY"/>
+		<field number="39" name="OrdStatus" type="CHAR"/>
+		<field number="48" name="SecurityID" type="STRING"/>
+		<field number="54" name="Side" type="CHAR"/>
+		<field number="55" name="Symbol" type="STRING"/>
+		<field number="60" name="TransactTime" type="UTCTIMESTAMP"/>
+		<field number="63" name="SettlType" type="STRING"/>
+		<field number="64" name="SettlDate" type="LOCALMKTDATE"/>
+		<field number="75" name="TradeDate" type="LOCALMKTDATE"/>
+		<field number="117" name="QuoteID" type="STRING"/>
+		<field number="120" name="SettlCurrency" type="CURRENCY"/>
+		<field number="131" name="QuoteReqID" type="STRING"/>
+		<field number="150" name="ExecType" type="CHAR"/>
+		<field number="167" name="SecurityType" type="STRING"/>
+		<field number="194" name="LastSpotRate" type="PRICE"/>
+		<field number="195" name="LastForwardPoints" type="PRICEOFFSET"/>
+		<field number="200" name="MaturityMonthYear" type="MONTHYEAR"/>
+		<field number="201" name="PutOrCall" type="INT"/>
+		<field number="202" name="StrikePrice" type="PRICE"/>
+		<field number="206" name="OptAttribute" type="CHAR"/>
+		<field number="207" name="SecurityExchange" type="STRING"/>
+		<field number="231" name="ContractMultiplier" type="FLOAT"/>
+		<field number="461" name="CFICode" type="STRING"/>
+		<field number="470" name="StrikeCurrency" type="CURRENCY"/>
+		<field number="541" name="MaturityDate" type="LOCALMKTDATE"/>
+		<field number="571" name="TradeReportID" type="STRING"/>
+		<field number="572" name="TradeReportRefID" type="STRING"/>
+		<field number="573" name="MatchStatus" type="CHAR"/>
+		<field number="574" name="MatchType" type="STRING"/>
+		<field number="487" name="TradeReportTransType" type="INT"/>
+		<field number="570" name="PreviouslyReported" type="BOOLEAN"/>
+		<field number="575" name="OddLot" type="BOOLEAN"/>
+		<field number="578" name="TradeInputSource" type="STRING"/>
+		<field number="579" name="TradeInputDevice" type="STRING"/>
+		<field number="581" name="AccountType" type="INT"/>
+		<field number="660" name="AcctIDSource" type="INT"/>
+		<field number="635" name="ClearingFeeIndicator" type="STRING"/>
+		<field number="616" name="ProcessCode" type="STRING"/>
+		<field number="376" name="ComplianceID" type="STRING"/>
+		<field number="715" name="ClearingBusinessDate" type="LOCALMKTDATE"/>
+		<field number="743" name="DeliveryDate" type="LOCALMKTDATE"/>
+		<field number="818" name="SecondaryTradeReportRefID" type="STRING"/>
+		<field number="820" name="TradeLinkID" type="STRING"/>
+
+		<!-- Trade Report fields -->
+		<field number="828" name="TrdType" type="INT"/>
+		<field number="829" name="TrdSubType" type="INT"/>
+		<field number="855" name="SecondaryTrdType" type="INT"/>
+		<field number="856" name="TradeReportType" type="INT"/>
+		<field number="830" name="TransferReason" type="STRING"/>
+		<field number="832" name="TrdMatchID" type="STRING"/>
+		<field number="939" name="TrdRptStatus" type="INT"/>
+		<field number="940" name="TradeHandlingInstr" type="CHAR"/>
+		<field number="1003" name="TradeID" type="STRING"/>
+		<field number="1005" name="SecondaryTradeID" type="STRING"/>
+		<field number="1011" name="SecondaryExecID" type="STRING"/>
+		<field number="1038" name="TradePublishIndicator" type="INT"/>
+		<field number="1057" name="AggressorIndicator" type="BOOLEAN"/>
+		<field number="568" name="TradeRequestID" type="STRING"/>
+		<field number="569" name="TradeRequestType" type="INT"/>
+		<field number="748" name="TotNumTradeReports" type="INT"/>
+		<field number="749" name="TradeRequestResult" type="INT"/>
+		<field number="750" name="TradeRequestStatus" type="INT"/>
+		<field number="797" name="CopyMsgIndicator" type="BOOLEAN"/>
+		<field number="852" name="PublishTrdIndicator" type="BOOLEAN"/>
+		<field number="891" name="MultiLegReportingType" type="INT"/>
+		<field number="1002" name="SecondaryTradeReportID" type="STRING"/>
+		<field number="1609" name="NoTrdRepIndicators" type="NUMINGROUP"/>
+		<field number="1611" name="TrdRepIndicator" type="BOOLEAN"/>
+
+		<!-- Leg fields -->
+		<field number="555" name="NoLegs" type="NUMINGROUP"/>
+		<field number="556" name="LegCurrency" type="CURRENCY"/>
+		<field number="564" name="LegPositionEffect" type="CHAR"/>
+		<field number="566" name="LegPrice" type="PRICE"/>
+		<field number="600" name="LegSymbol" type="STRING"/>
+		<field number="601" name="LegSymbolSfx" type="STRING"/>
+		<field number="602" name="LegSecurityID" type="STRING"/>
+		<field number="603" name="LegSecurityIDSource" type="STRING"/>
+		<field number="604" name="NoLegSecurityAltID" type="NUMINGROUP"/>
+		<field number="605" name="LegSecurityAltID" type="STRING"/>
+		<field number="606" name="LegCFICode" type="STRING"/>
+		<field number="607" name="LegSecurityType" type="STRING"/>
+		<field number="608" name="LegSecurityExchange" type="STRING"/>
+		<field number="609" name="LegDescription" type="STRING"/>
+		<field number="610" name="LegMaturityMonthYear" type="MONTHYEAR"/>
+		<field number="611" name="LegMaturityDate" type="LOCALMKTDATE"/>
+		<field number="612" name="LegStrikePrice" type="PRICE"/>
+		<field number="613" name="LegOptAttribute" type="CHAR"/>
+		<field number="614" name="LegContractMultiplier" type="FLOAT"/>
+		<field number="615" name="LegCouponRate" type="PERCENTAGE"/>
+		<field number="623" name="LegRatioQty" type="FLOAT"/>
+		<field number="624" name="LegSide" type="CHAR"/>
+		<field number="637" name="LegLastPx" type="PRICE"/>
+		<field number="654" name="LegRefID" type="STRING"/>
+		<field number="682" name="LegPutOrCall" type="INT"/>
+		<field number="687" name="LegQty" type="QTY"/>
+		<field number="690" name="LegSwapType" type="INT"/>
+		<field number="764" name="LegSettlDate" type="LOCALMKTDATE"/>
+		<field number="587" name="LegSettlType" type="CHAR"/>
+		<field number="942" name="LegStrikeCurrency" type="CURRENCY"/>
+		<field number="2893" name="LegUSIShortCode" type="STRING"/>
+
+		<!-- Underlying fields -->
+		<field number="711" name="NoUnderlyings" type="NUMINGROUP"/>
+		<field number="305" name="UnderlyingSecurityIDSource" type="STRING"/>
+		<field number="309" name="UnderlyingSecurityID" type="STRING"/>
+		<field number="310" name="UnderlyingSecurityExchange" type="STRING"/>
+		<field number="311" name="UnderlyingSymbol" type="STRING"/>
+		<field number="312" name="UnderlyingSymbolSfx" type="STRING"/>
+		<field number="313" name="UnderlyingMaturityMonthYear" type="MONTHYEAR"/>
+		<field number="315" name="UnderlyingPutOrCall" type="INT"/>
+		<field number="316" name="UnderlyingStrikePrice" type="PRICE"/>
+		<field number="457" name="NoUnderlyingSecurityAltID" type="NUMINGROUP"/>
+		<field number="462" name="UnderlyingCFICode" type="STRING"/>
+		<field number="463" name="UnderlyingSecurityType" type="STRING"/>
+		<field number="542" name="UnderlyingMaturityDate" type="LOCALMKTDATE"/>
+		<field number="810" name="UnderlyingPx" type="PRICE"/>
+		<field number="879" name="UnderlyingQty" type="QTY"/>
+		<field number="882" name="UnderlyingDirtyPrice" type="PRICE"/>
+		<field number="883" name="UnderlyingEndPrice" type="PRICE"/>
+		<field number="884" name="UnderlyingStartValue" type="AMT"/>
+		<field number="885" name="UnderlyingCurrentValue" type="AMT"/>
+		<field number="886" name="UnderlyingEndValue" type="AMT"/>
+		<field number="941" name="UnderlyingStrikeCurrency" type="CURRENCY"/>
+		<field number="606" name="LegSecurityAltIDSource" type="STRING"/>
+
+		<!-- Side fields -->
+		<field number="552" name="NoSides" type="NUMINGROUP"/>
+		<field number="453" name="NoPartyIDs" type="NUMINGROUP"/>
+		<field number="448" name="PartyID" type="STRING"/>
+		<field number="447" name="PartyIDSource" type="CHAR"/>
+		<field number="452" name="PartyRole" type="INT"/>
+		<field number="802" name="NoPartySubIDs" type="NUMINGROUP"/>
+		<field number="803" name="PartySubID" type="STRING"/>
+		<field number="804" name="PartySubIDType" type="INT"/>
+
+		<!-- ============================================ -->
+		<!-- Fenics/GFI Custom Tags (from raw AE message) -->
+		<!-- ============================================ -->
+		<field number="464" name="Fenics464" type="STRING"/>
+		<field number="593" name="Fenics593" type="STRING"/>
+		<field number="714" name="Fenics714" type="STRING"/>
+		<field number="768" name="Fenics768" type="STRING"/>
+		<field number="769" name="Fenics769" type="STRING"/>
+		<field number="770" name="Fenics770" type="STRING"/>
+		<field number="5020" name="Fenics5020" type="STRING"/>
+		<field number="5191" name="Fenics5191" type="STRING"/>
+		<field number="5235" name="Fenics5235" type="STRING"/>
+		<field number="5678" name="Fenics5678" type="STRING"/>
+		<field number="6030" name="Fenics6030" type="STRING"/>
+		<field number="6034" name="Fenics6034" type="STRING"/>
+		<field number="6035" name="Fenics6035" type="STRING"/>
+		<field number="6036" name="Fenics6036" type="STRING"/>
+		<field number="6037" name="Fenics6037" type="STRING"/>
+		<field number="6038" name="Fenics6038" type="STRING"/>
+		<field number="6039" name="Fenics6039" type="STRING"/>
+		<field number="6040" name="Fenics6040" type="STRING"/>
+		<field number="6057" name="Fenics6057" type="STRING"/>
+		<field number="6139" name="Fenics6139" type="STRING"/>
+		<field number="6215" name="Fenics6215" type="STRING"/>
+		<field number="6426" name="Fenics6426" type="STRING"/>
+		<field number="6666" name="Fenics6666" type="STRING"/>
+		<field number="6714" name="Fenics6714" type="STRING"/>
+		<field number="7705" name="Fenics7705" type="STRING"/>
+		<field number="7931" name="Fenics7931" type="STRING"/>
+		<field number="8500" name="Fenics8500" type="STRING"/>
+		<field number="8501" name="Fenics8501" type="STRING"/>
+		<field number="8502" name="Fenics8502" type="STRING"/>
+		<field number="8503" name="Fenics8503" type="STRING"/>
+		<field number="8504" name="Fenics8504" type="STRING"/>
+		<field number="8505" name="Fenics8505" type="STRING"/>
+		<field number="8506" name="Fenics8506" type="STRING"/>
+		<field number="8507" name="Fenics8507" type="STRING"/>
+		<field number="8508" name="Fenics8508" type="STRING"/>
+		<field number="8509" name="Fenics8509" type="STRING"/>
+		<field number="8510" name="Fenics8510" type="STRING"/>
+		<field number="8511" name="Fenics8511" type="STRING"/>
+		<field number="8512" name="Fenics8512" type="STRING"/>
+		<field number="8513" name="Fenics8513" type="STRING"/>
+		<field number="8514" name="Fenics8514" type="STRING"/>
+		<field number="8515" name="Fenics8515" type="STRING"/>
+		<field number="8516" name="Fenics8516" type="STRING"/>
+		<field number="8517" name="Fenics8517" type="STRING"/>
+		<field number="8518" name="Fenics8518" type="STRING"/>
+		<field number="8519" name="Fenics8519" type="STRING"/>
+		<field number="8520" name="Fenics8520" type="STRING"/>
+		<field number="8521" name="Fenics8521" type="STRING"/>
+		<field number="8522" name="Fenics8522" type="STRING"/>
+		<field number="8523" name="Fenics8523" type="STRING"/>
+		<field number="8524" name="Fenics8524" type="STRING"/>
+		<field number="8525" name="Fenics8525" type="STRING"/>
+		<field number="8526" name="Fenics8526" type="STRING"/>
+		<field number="8527" name="Fenics8527" type="STRING"/>
+		<field number="8528" name="Fenics8528" type="STRING"/>
+		<field number="8529" name="Fenics8529" type="STRING"/>
+		<field number="8530" name="Fenics8530" type="STRING"/>
+		<field number="9019" name="Fenics9019" type="STRING"/>
+		<field number="9034" name="Fenics9034" type="STRING"/>
+		<field number="9073" name="Fenics9073" type="STRING"/>
+		<field number="9074" name="Fenics9074" type="STRING"/>
+		<field number="9115" name="Fenics9115" type="STRING"/>
+		<field number="9125" name="Fenics9125" type="STRING"/>
+		<field number="9126" name="Fenics9126" type="STRING"/>
+		<field number="9246" name="Fenics9246" type="STRING"/>
+		<field number="9247" name="Fenics9247" type="STRING"/>
+		<field number="9248" name="Fenics9248" type="STRING"/>
+		<field number="9250" name="Fenics9250" type="STRING"/>
+		<field number="9536" name="Fenics9536" type="STRING"/>
+		<field number="9904" name="Fenics9904" type="STRING"/>
+		<field number="10604" name="Fenics10604" type="STRING"/>
+		<field number="10605" name="Fenics10605" type="STRING"/>
+		<field number="10606" name="Fenics10606" type="STRING"/>
+		<field number="10608" name="Fenics10608" type="STRING"/>
+		<field number="10609" name="Fenics10609" type="STRING"/>
+		<field number="5830" name="Fenics5830" type="STRING"/>
+	</fields>
+</fix>

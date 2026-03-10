@@ -11,10 +11,6 @@ using Microsoft.Extensions.Logging;
 
 namespace FxFixGateway.Application.BackgroundServices
 {
-    /// <summary>
-    /// Background service som pollar databasen för pending ACKs
-    /// och skickar AR-meddelanden via FixEngine.
-    /// </summary>
     public sealed class AckPollingService : BackgroundService
     {
         private readonly IAckQueueRepository _ackQueueRepository;
@@ -22,8 +18,6 @@ namespace FxFixGateway.Application.BackgroundServices
         private readonly ILogger<AckPollingService> _logger;
 
         private readonly TimeSpan _pollingInterval = TimeSpan.FromSeconds(5);
-
-        // Track which sessions are logged on
         private readonly HashSet<string> _loggedOnSessions = new();
 
         public AckPollingService(
@@ -35,7 +29,6 @@ namespace FxFixGateway.Application.BackgroundServices
             _fixEngine = fixEngine ?? throw new ArgumentNullException(nameof(fixEngine));
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
 
-            // Subscribe to session status changes
             _fixEngine.StatusChanged += OnSessionStatusChanged;
         }
 
@@ -49,92 +42,71 @@ namespace FxFixGateway.Application.BackgroundServices
         {
             if (e.NewStatus == SessionStatus.LoggedOn)
             {
-                lock (_loggedOnSessions)
-                {
-                    _loggedOnSessions.Add(e.SessionKey);
-                }
+                lock (_loggedOnSessions) { _loggedOnSessions.Add(e.SessionKey); }
                 _logger.LogInformation("Session {SessionKey} is now LoggedOn - ACK sending enabled", e.SessionKey);
             }
-            else if (e.NewStatus == SessionStatus.Stopped || 
-                     e.NewStatus == SessionStatus.Disconnecting || 
-                     e.NewStatus == SessionStatus.Error)
+            else if (e.NewStatus is SessionStatus.Stopped or SessionStatus.Disconnecting or SessionStatus.Error)
             {
-                lock (_loggedOnSessions)
-                {
-                    _loggedOnSessions.Remove(e.SessionKey);
-                }
+                lock (_loggedOnSessions) { _loggedOnSessions.Remove(e.SessionKey); }
                 _logger.LogInformation("Session {SessionKey} is no longer LoggedOn - ACK sending disabled", e.SessionKey);
             }
         }
 
         private bool IsSessionLoggedOn(string sessionKey)
         {
-            lock (_loggedOnSessions)
-            {
-                return _loggedOnSessions.Contains(sessionKey);
-            }
+            lock (_loggedOnSessions) { return _loggedOnSessions.Contains(sessionKey); }
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
             _logger.LogInformation("ACK Polling Service started");
 
-            // Vänta lite innan vi börjar (låt andra services starta först)
             await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
 
             while (!stoppingToken.IsCancellationRequested)
             {
                 try
                 {
-                    await ProcessPendingAcksAsync(stoppingToken);
+                    await ProcessBatchAsync(await _ackQueueRepository.GetPendingAcksAsync(maxCount: 100), stoppingToken);
+                    await ProcessBatchAsync(await _ackQueueRepository.GetRejectedAcksAsync(maxCount: 100), stoppingToken);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error processing pending ACKs");
+                    _logger.LogError(ex, "Error processing ACK queue");
                 }
 
-                // Vänta innan nästa polling
                 await Task.Delay(_pollingInterval, stoppingToken);
             }
 
             _logger.LogInformation("ACK Polling Service stopped");
         }
 
-        private async Task ProcessPendingAcksAsync(CancellationToken cancellationToken)
+        private async Task ProcessBatchAsync(
+            IEnumerable<Domain.ValueObjects.PendingAck> acks,
+            CancellationToken cancellationToken)
         {
-            // Hämta pending ACKs från DB
-            var pendingAcks = await _ackQueueRepository.GetPendingAcksAsync(maxCount: 100);
-            var ackList = pendingAcks.ToList();
+            var ackList = acks.ToList();
+            if (ackList.Count == 0) return;
 
-            if (ackList.Count == 0)
-            {
-                return;
-            }
-
-            // Group by session and only process sessions that are logged on
-            var acksBySession = ackList.GroupBy(a => a.SessionKey);
-
-            foreach (var sessionGroup in acksBySession)
+            foreach (var sessionGroup in ackList.GroupBy(a => a.SessionKey))
             {
                 var sessionKey = sessionGroup.Key;
 
-                // First check: Skip entire session group if not logged on (optimization)
-                // NOTE: Session could log off after this check - ProcessSingleAckAsync does a second check
                 if (!IsSessionLoggedOn(sessionKey))
                 {
-                    _logger.LogDebug("Skipping {Count} pending ACKs for session {SessionKey} - not logged on",
+                    _logger.LogDebug("Skipping {Count} ACKs for session {SessionKey} - not logged on",
                         sessionGroup.Count(), sessionKey);
                     continue;
                 }
 
-                _logger.LogInformation("Processing {Count} pending ACKs for session {SessionKey}",
-                    sessionGroup.Count(), sessionKey);
+                _logger.LogInformation("Processing {Count} {Type} ACKs for session {SessionKey}",
+                    sessionGroup.Count(),
+                    sessionGroup.First().IsReject ? "REJECT" : "ACCEPT",
+                    sessionKey);
 
                 foreach (var ack in sessionGroup)
                 {
-                    if (cancellationToken.IsCancellationRequested)
-                        break;
-
+                    if (cancellationToken.IsCancellationRequested) break;
                     await ProcessSingleAckAsync(ack);
                 }
             }
@@ -142,7 +114,6 @@ namespace FxFixGateway.Application.BackgroundServices
 
         private async Task ProcessSingleAckAsync(Domain.ValueObjects.PendingAck ack)
         {
-            // Double-check session is still logged on before sending
             if (!IsSessionLoggedOn(ack.SessionKey))
             {
                 _logger.LogWarning("Session {SessionKey} logged off before ACK could be sent for Trade {TradeId}",
@@ -150,8 +121,7 @@ namespace FxFixGateway.Application.BackgroundServices
                 return;
             }
 
-            // Validate required fields - InternTradeId (tag 818) is required for a complete AR message
-            if (string.IsNullOrEmpty(ack.InternTradeId))
+            if (!ack.IsReject && string.IsNullOrEmpty(ack.InternTradeId))
             {
                 _logger.LogWarning(
                     "Skipping ACK for Trade {TradeId} - AckInternalTradeId is null/empty. " +
@@ -162,54 +132,58 @@ namespace FxFixGateway.Application.BackgroundServices
 
             try
             {
-                _logger.LogDebug("Processing ACK for Trade {TradeId}: {TradeReportId} → {InternTradeId}",
-                    ack.TradeId, ack.TradeReportId, ack.InternTradeId);
+                string arMessage;
 
-                var arMessage = FixMessageBuilder.BuildTradeCaptureReportAck(ack.TradeReportId, ack.InternTradeId);
+                if (ack.IsReject)
+                {
+                    _logger.LogInformation(
+                        "Sending AR Reject for Trade {TradeId}: TradeReportId={TradeReportId}, ExternalTradeKey={ExternalTradeKey}, Reason={RejectReason}",
+                        ack.TradeId, ack.TradeReportId, ack.ExternalTradeKey, ack.RejectReason);
 
-                _logger.LogInformation("Sending AR for Trade {TradeId}: TradeReportID={TradeReportId}, SecondaryTradeReportID={InternTradeId}",
-                    ack.TradeId, ack.TradeReportId, ack.InternTradeId);
+                    arMessage = FixMessageBuilder.BuildTradeCaptureReportAckReject(
+                        tradeReportId: ack.TradeReportId,
+                        externalTradeKey: ack.ExternalTradeKey,
+                        rejectReason: ack.RejectReason);
+                }
+                else
+                {
+                    _logger.LogInformation(
+                        "Sending AR Accept for Trade {TradeId}: TradeReportId={TradeReportId}, InternTradeId={InternTradeId}",
+                        ack.TradeId, ack.TradeReportId, ack.InternTradeId);
+
+                    arMessage = FixMessageBuilder.BuildTradeCaptureReportAck(
+                        tradeReportId: ack.TradeReportId,
+                        internTradeId: ack.InternTradeId);
+                }
 
                 await _fixEngine.SendMessageAsync(ack.SessionKey, arMessage);
 
-                // Uppdatera status i tradesystemlink
-                await _ackQueueRepository.UpdateAckStatusAsync(
-                    ack.TradeId,
-                    AckStatus.Sent,
-                    DateTime.UtcNow);
+                // Rejected trades get AckStatus.Rejected → ACK_REJECT_SENT in DB
+                // Accepted trades get AckStatus.Sent → ACK_SENT in DB
+                var finalStatus = ack.IsReject ? AckStatus.Rejected : AckStatus.Sent;
+                await _ackQueueRepository.UpdateAckStatusAsync(ack.TradeId, finalStatus, DateTime.UtcNow);
 
-                // Skriv workflow event: FIX_ACK_SENT
-                await TryInsertWorkflowEventAsync(
-                    ack.TradeId,
-                    "FIX_ACK",
-                    "FIX_ACK_SENT",
-                    $"FIX acknowledgment sent\nTradeReportID: {ack.TradeReportId}\nMX3 trade ID: {ack.InternTradeId}");
+                var eventType = ack.IsReject ? "FIX_ACK_REJECT_SENT" : "FIX_ACK_SENT";
+                var details = ack.IsReject
+                    ? $"FIX reject acknowledgment sent\nTradeReportID: {ack.TradeReportId}\nVolbroker ID (881): {ack.ExternalTradeKey}\nReason: {ack.RejectReason}"
+                    : $"FIX acknowledgment sent\nTradeReportID: {ack.TradeReportId}\nIntern trade ID: {ack.InternTradeId}";
 
-                _logger.LogInformation("ACK sent successfully for Trade {TradeId}", ack.TradeId);
+                await TryInsertWorkflowEventAsync(ack.TradeId, "FIX_ACK", eventType, details);
+
+                _logger.LogInformation("AR {Type} sent successfully for Trade {TradeId}",
+                    ack.IsReject ? "REJECT" : "ACCEPT", ack.TradeId);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to send ACK for Trade {TradeId}", ack.TradeId);
 
-                // Uppdatera status till Failed
-                await _ackQueueRepository.UpdateAckStatusAsync(
-                    ack.TradeId,
-                    AckStatus.Failed,
-                    null);
+                await _ackQueueRepository.UpdateAckStatusAsync(ack.TradeId, AckStatus.Failed, null);
 
-                // Skriv workflow event: FIX_ACK_ERROR
-                await TryInsertWorkflowEventAsync(
-                    ack.TradeId,
-                    "FIX_ACK",
-                    "FIX_ACK_ERROR",
+                await TryInsertWorkflowEventAsync(ack.TradeId, "FIX_ACK", "FIX_ACK_ERROR",
                     $"FIX acknowledgment failed\nError: {ex.Message}");
             }
         }
 
-        /// <summary>
-        /// Attempts to insert a workflow event. Logs a warning if it fails but does not throw.
-        /// This ensures ACK processing continues even if audit trail logging fails.
-        /// </summary>
         private async Task TryInsertWorkflowEventAsync(long tradeId, string systemCode, string eventType, string? details)
         {
             try
@@ -219,9 +193,9 @@ namespace FxFixGateway.Application.BackgroundServices
             catch (Exception ex)
             {
                 _logger.LogWarning(ex,
-                    "Failed to insert workflow event for Trade {TradeId}. Event: {EventType}, SystemCode: {SystemCode}. " +
+                    "Failed to insert workflow event for Trade {TradeId}. Event: {EventType}. " +
                     "ACK was processed but audit trail may be incomplete.",
-                    tradeId, eventType, systemCode);
+                    tradeId, eventType);
             }
         }
     }

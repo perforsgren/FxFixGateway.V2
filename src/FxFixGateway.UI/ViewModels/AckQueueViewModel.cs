@@ -53,10 +53,9 @@ namespace FxFixGateway.UI.ViewModels
 
         public ObservableCollection<string> FilterOptions { get; } = new()
         {
-            "All", "Pending", "Sent", "Failed"
+            "All", "Pending", "Sent", "Rejected", "Failed"
         };
 
-        // Computed properties for UI state
         public bool HasFailedAcks => FailedCount > 0;
         public bool HasPendingAcks => PendingCount > 0;
         public bool CanSendSelected => SelectedAck != null
@@ -134,15 +133,15 @@ namespace FxFixGateway.UI.ViewModels
             {
                 "Pending" => AckStatus.Pending,
                 "Sent" => AckStatus.Sent,
+                "Rejected" => AckStatus.Rejected,
                 "Failed" => AckStatus.Failed,
                 _ => null
             };
 
             var entries = await _ackQueueRepository.GetAcksBySessionAsync(_currentSessionKey, statusFilter, 200);
-            var entryList = entries.ToList();
 
             Acks.Clear();
-            foreach (var entry in entryList)
+            foreach (var entry in entries)
             {
                 Acks.Add(new AckEntryViewModel(entry));
             }
@@ -158,7 +157,6 @@ namespace FxFixGateway.UI.ViewModels
             {
                 var stats = await _ackQueueRepository.GetStatisticsAsync(_currentSessionKey);
 
-                // Use full namespace to avoid conflict with FxFixGateway.Application
                 await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
                     var oldPending = PendingCount;
@@ -185,9 +183,7 @@ namespace FxFixGateway.UI.ViewModels
         partial void OnSelectedFilterChanged(string value)
         {
             if (!string.IsNullOrEmpty(_currentSessionKey))
-            {
                 _ = LoadDataWithErrorHandlingAsync();
-            }
         }
 
         private async Task LoadDataWithErrorHandlingAsync()
@@ -353,15 +349,24 @@ namespace FxFixGateway.UI.ViewModels
         public DateTime CreatedUtc => _entry.CreatedUtc;
         public DateTime? SentUtc => _entry.SentUtc;
 
-        public string StatusText => Status.ToString();
+        public string StatusText => Status switch
+        {
+            AckStatus.Pending => "Pending",
+            AckStatus.Sent => "Sent",
+            AckStatus.Failed => "Failed",
+            AckStatus.Rejected => "Rejected",
+            _ => Status.ToString()
+        };
+
         public string CreatedFormatted => CreatedUtc.ToLocalTime().ToString("HH:mm:ss");
         public string SentFormatted => SentUtc?.ToLocalTime().ToString("HH:mm:ss") ?? "--";
 
         public string StatusColor => Status switch
         {
-            AckStatus.Pending => "#FFF9C4",
-            AckStatus.Sent => "#C8E6C9",
-            AckStatus.Failed => "#FFCDD2",
+            AckStatus.Pending => "#FFF9C4", // gul
+            AckStatus.Sent => "#C8E6C9", // grön
+            AckStatus.Failed => "#FFCDD2", // röd
+            AckStatus.Rejected => "#FFE0B2", // orange
             _ => "#FFFFFF"
         };
 
@@ -370,6 +375,7 @@ namespace FxFixGateway.UI.ViewModels
             AckStatus.Pending => "⏳",
             AckStatus.Sent => "✓",
             AckStatus.Failed => "✗",
+            AckStatus.Rejected => "⊘",
             _ => ""
         };
 

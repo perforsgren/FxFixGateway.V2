@@ -83,10 +83,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
             sb.AppendLine($"FileLogPath={_fileLogPath}");
             sb.AppendLine();
 
-            // Validation - stäng av allt
-            sb.AppendLine("UseDataDictionary=N");
+            // Validation - stäng av strikt validering
             sb.AppendLine("ValidateFieldsOutOfOrder=N");
             sb.AppendLine("ValidateUserDefinedFields=N");
+            sb.AppendLine("ValidateFieldsHaveValues=N");
             sb.AppendLine("AllowUnknownMsgFields=Y");
             sb.AppendLine("CheckCompID=N");
             sb.AppendLine("CheckLatency=N");
@@ -102,7 +102,19 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 sb.AppendLine($"SenderCompID={config.SenderCompId}");
                 sb.AppendLine($"TargetCompID={config.TargetCompId}");
                 sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");
-                sb.AppendLine("UseDataDictionary=N");
+
+                // Använd data dictionary för sessions som behöver repeating groups
+                // (t.ex. Fenics med multi-leg options)
+                var dictionaryFile = GetDataDictionaryForSession(config);
+                if (!string.IsNullOrEmpty(dictionaryFile) && File.Exists(dictionaryFile))
+                {
+                    sb.AppendLine("UseDataDictionary=Y");
+                    sb.AppendLine($"DataDictionary={dictionaryFile}");
+                }
+                else
+                {
+                    sb.AppendLine("UseDataDictionary=N");
+                }
                 sb.AppendLine();
 
                 // Connection settings
@@ -135,6 +147,63 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
 
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Bestämmer vilken data dictionary som ska användas per session.
+        /// Sessions med DataDictionaryFile konfigurerat i DB använder den.
+        /// Fenics-sessions behöver dictionary för multi-leg repeating groups (tag 555/600).
+        /// </summary>
+        private string GetDataDictionaryForSession(SessionConfiguration config)
+        {
+            // 1. Om sessionen har en explicit konfigurerad dictionary-fil, använd den
+            if (!string.IsNullOrEmpty(config.DataDictionaryFile))
+            {
+                var configPath = config.DataDictionaryFile;
+                if (File.Exists(configPath))
+                    return configPath;
+
+                // Försök relativt till applikationens directory
+                var appDir = AppDomain.CurrentDomain.BaseDirectory;
+                var relativePath = Path.Combine(appDir, configPath);
+                if (File.Exists(relativePath))
+                    return relativePath;
+            }
+
+            // 2. Fallback: Använd Fenics-dictionary för kända Fenics-sessions
+            if (config.VenueCode?.Contains("FENICS", StringComparison.OrdinalIgnoreCase) == true ||
+                config.SessionKey?.Contains("FENICS", StringComparison.OrdinalIgnoreCase) == true)
+            {
+                var fenicsDict = FindDictionaryFile("FIX44_Fenics.xml");
+                if (!string.IsNullOrEmpty(fenicsDict))
+                    return fenicsDict;
+            }
+
+            // 3. Fallback: Gemensam dictionary om den finns
+            if (!string.IsNullOrEmpty(_dataDictionaryPath) && File.Exists(_dataDictionaryPath))
+                return _dataDictionaryPath;
+
+            return null;
+        }
+
+        private string FindDictionaryFile(string filename)
+        {
+            // Sök i vanliga platser
+            var searchPaths = new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, filename),
+                Path.Combine(Directory.GetCurrentDirectory(), filename),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "QuickFix", filename),
+                filename
+            };
+
+            foreach (var path in searchPaths)
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+
+            return null;
         }
     }
 }

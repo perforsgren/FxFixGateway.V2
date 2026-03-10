@@ -17,6 +17,12 @@ namespace FxFixGateway.Domain.Interfaces
         Task<IEnumerable<PendingAck>> GetPendingAcksAsync(int maxCount = 100);
 
         /// <summary>
+        /// Hämtar trades med Status=ACK_REJECTED som ska skicka FIX AR Reject.
+        /// ExternalTradeKey (AE tag 818) ekas i AR tag 881, LastError blir tag 58.
+        /// </summary>
+        Task<IEnumerable<PendingAck>> GetRejectedAcksAsync(int maxCount = 100);
+
+        /// <summary>
         /// Hämtar ACKs för en specifik session med valfri status-filtrering.
         /// </summary>
         Task<IEnumerable<AckEntry>> GetAcksBySessionAsync(string sessionKey, AckStatus? statusFilter = null, int maxCount = 100);
