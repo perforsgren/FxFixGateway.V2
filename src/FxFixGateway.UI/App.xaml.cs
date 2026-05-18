@@ -19,6 +19,7 @@ using FxTradeHub.Domain.Parsing;
 using FxTradeHub.Services.Ingest;
 using FxTradeHub.Services.Parsing;
 using FxTradeHub.Data.MySql.Repositories;
+using FxSharedConfig;
 
 
 
@@ -31,6 +32,21 @@ namespace FxFixGateway.UI
 
         protected override void OnStartup(StartupEventArgs e)
         {
+            AppDomain.CurrentDomain.FirstChanceException += (sender, args) =>
+            {
+                // Ignorera känd race condition i QuickFIX/n vid disconnect
+                if (args.Exception is ObjectDisposedException ode &&
+                    args.Exception.StackTrace?.Contains("SocketInitiatorThread") == true)
+                    return;
+
+                if (args.Exception.Source?.Contains("QuickFix") == true ||
+                    args.Exception.StackTrace?.Contains("QuickFix") == true)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[QuickFIX FirstChance] {args.Exception.GetType().Name}: {args.Exception.Message}\n{args.Exception.StackTrace}");
+                }
+            };
+
             base.OnStartup(e);
 
             SerilogConfiguration.Configure();
@@ -135,16 +151,13 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            var connectionString = configuration.GetConnectionString("GatewayDb")
-                ?? "Server=srv78506;Database=fix_config_dev;User=fxopt;Password=fxopt987;";
+            var connectionString = AppDbConfig.GetConnectionString("fix_config_dev");
 
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
             Log.Information("Using GatewayDb connection string: {ConnectionString}", safeConnStr);
 
-            // STP connection string (fallback: replace database name)
-            var stpConnectionString = configuration.GetConnectionString("STP")
-                ?? connectionString.Replace("fix_config_dev", "trade_stp");
+            var stpConnectionString = AppDbConfig.GetConnectionString("trade_stp");
 
             var safeSTPConnStr = System.Text.RegularExpressions.Regex.Replace(
                 stpConnectionString, @"Password=[^;]*", "Password=***");
@@ -231,6 +244,9 @@ namespace FxFixGateway.UI
                 builder.ClearProviders();
                 builder.AddSerilog();
             });
+
+            var path = System.Configuration.ConfigurationManager.AppSettings["AppConfigPath"];
+            Log.Information("AppConfigPath = {Path}", path);
         }
 
 

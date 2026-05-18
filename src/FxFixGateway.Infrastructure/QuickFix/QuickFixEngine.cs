@@ -117,7 +117,50 @@ namespace FxFixGateway.Infrastructure.QuickFix
             // SEDAN bygg QuickFIX settings
             _logger?.LogInformation("Building QuickFIX SessionSettings...");
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
-            _settings = builder.Build(configList);
+
+            // ─── DEBUG: logga genererad config ───────────────────────────────────
+            var generatedConfig = builder.BuildConfigFileContentPublic(configList);
+            _logger?.LogDebug("=== Generated QuickFIX config ===\n{Config}", generatedConfig);
+            // ─────────────────────────────────────────────────────────────────────
+
+            // ─── DEBUG: TCP-test för varje session ───────────────────────────────
+            foreach (var cfg in configList)
+            {
+                var host = cfg.UseSSLTunnel && cfg.SslLocalPort.HasValue ? "127.0.0.1" : cfg.Host;
+                var port = cfg.UseSSLTunnel && cfg.SslLocalPort.HasValue ? cfg.SslLocalPort.Value : cfg.Port;
+
+                _logger?.LogInformation("[{SessionKey}] TCP connectivity test → {Host}:{Port}...", cfg.SessionKey, host, port);
+                try
+                {
+                    using var tcpClient = new System.Net.Sockets.TcpClient();
+                    var connectTask = tcpClient.ConnectAsync(host, port);
+                    var completed = await Task.WhenAny(connectTask, Task.Delay(5000));
+
+                    if (completed == connectTask && tcpClient.Connected)
+                    {
+                        _logger?.LogInformation("[{SessionKey}] ✅ TCP OK — {Host}:{Port} is reachable", cfg.SessionKey, host, port);
+                    }
+                    else
+                    {
+                        _logger?.LogError("[{SessionKey}] ❌ TCP FAILED — {Host}:{Port} not reachable (timeout/refused)", cfg.SessionKey, host, port);
+                    }
+                }
+                catch (Exception tcpEx)
+                {
+                    _logger?.LogError("[{SessionKey}] ❌ TCP EXCEPTION — {Host}:{Port} → {Error}", cfg.SessionKey, host, port, tcpEx.Message);
+                }
+            }
+            // ─────────────────────────────────────────────────────────────────────
+
+            try
+            {
+                _settings = builder.Build(configList);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "FAILED to build SessionSettings: {Message}", ex.Message);
+                throw;
+            }
 
             _sessionKeyMap = new Dictionary<global::QuickFix.SessionID, string>();
             _sessionIdMap = new Dictionary<string, global::QuickFix.SessionID>();
@@ -135,12 +178,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _sessionIdMap[config.SessionKey] = sessionId;
                 _sessionAutoStart[config.SessionKey] = config.IsEnabled;
 
-                // Lägg till credentials för sessionen
-                if (!string.IsNullOrEmpty(config.LogonUsername))
+                // Lägg till credentials om password ELLER username finns
+                if (!string.IsNullOrEmpty(config.LogonUsername) || !string.IsNullOrEmpty(config.Password))
                 {
-                    sessionCredentials[config.SessionKey] = (config.LogonUsername, config.Password ?? string.Empty);
-                    _logger?.LogDebug("[{SessionKey}] Credentials configured (user: {User})", 
-                        config.SessionKey, config.LogonUsername);
+                    sessionCredentials[config.SessionKey] = (config.LogonUsername ?? string.Empty, config.Password ?? string.Empty);
+                    _logger?.LogDebug("[{SessionKey}] Credentials configured (user: '{User}', password: {HasPw})",
+                        config.SessionKey, config.LogonUsername, !string.IsNullOrEmpty(config.Password));
                 }
 
                 _logger?.LogDebug("[{SessionKey}] Mapped to SessionID: {SessionID} (AutoStart={AutoStart})",
@@ -148,11 +191,17 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
 
             // Pass FxTradeHub services AND credentials to QuickFixApplication
+            var disabledSessionKeys = configList
+                .Where(c => !c.IsEnabled)
+                .Select(c => c.SessionKey)
+                .ToList();
+
             _application = new QuickFixApplication(
                 _sessionKeyMap,
                 sessionCredentials,
                 _messageInService,
-                _orchestrator);
+                _orchestrator,
+                disabledSessionKeys);  // ← nytt
 
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
@@ -162,7 +211,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             var storeFactory = new global::QuickFix.Store.FileStoreFactory(_settings);
             var logFactory = new global::QuickFix.Logger.FileLogFactory(_settings);
-            var messageFactory = new global::QuickFix.DefaultMessageFactory();
+            var messageFactory = new LenientMessageFactory();  // ← var: DefaultMessageFactory()    //TODO: KOLLA DETTA!!!
 
             _logger?.LogInformation("Creating SocketInitiator...");
             _initiator = new global::QuickFix.Transport.SocketInitiator(
@@ -174,8 +223,22 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             // Starta initiator (nätverkshantering)
             _logger?.LogInformation("Starting SocketInitiator...");
-            _initiator.Start();
-            _running = true;
+            try
+            {
+                _initiator.Start();
+                _running = true;
+                _logger?.LogInformation("SocketInitiator started OK");
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(ex, "FAILED to start SocketInitiator: [{Type}] {Message}\n{StackTrace}",
+                    ex.GetType().Name, ex.Message, ex.StackTrace);
+
+                if (ex.InnerException != null)
+                    _logger?.LogError("InnerException: [{Type}] {Message}",
+                        ex.InnerException.GetType().Name, ex.InnerException.Message);
+                throw;
+            }
 
             // Vänta lite så sessioner hinner skapas
             await Task.Delay(500);

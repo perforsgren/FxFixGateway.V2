@@ -102,14 +102,15 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 sb.AppendLine($"SenderCompID={config.SenderCompId}");
                 sb.AppendLine($"TargetCompID={config.TargetCompId}");
                 sb.AppendLine($"HeartBtInt={config.HeartBtIntSec}");
+                sb.AppendLine($"ReconnectInterval={config.ReconnectIntervalSeconds}");
 
-                // Använd data dictionary för sessions som behöver repeating groups
-                // (t.ex. Fenics med multi-leg options)
+                // Data dictionary
                 var dictionaryFile = GetDataDictionaryForSession(config);
                 if (!string.IsNullOrEmpty(dictionaryFile) && File.Exists(dictionaryFile))
                 {
                     sb.AppendLine("UseDataDictionary=Y");
                     sb.AppendLine($"DataDictionary={dictionaryFile}");
+                    sb.AppendLine("ValidateIncomingMessage=N"); // ← tillåt custom/ogiltiga värden från servern
                 }
                 else
                 {
@@ -204,6 +205,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Exponerar config-innehållet för debug-ändamål.
+        /// </summary>
+        public string BuildConfigFileContentPublic(IEnumerable<SessionConfiguration> configurations)
+        {
+            return BuildConfigFileContent(configurations.ToList());
         }
     }
 }

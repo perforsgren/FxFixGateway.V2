@@ -15,6 +15,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
     {
         private readonly Dictionary<QF.SessionID, string> _sessionKeyMap;
         private readonly Dictionary<string, (string Username, string Password)> _sessionCredentials;
+        private readonly HashSet<string> _disabledSessions;
         private readonly IMessageInService? _messageInService;
         private readonly IMessageInParserOrchestrator? _orchestrator;
 
@@ -28,10 +29,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
             Dictionary<QF.SessionID, string> sessionKeyMap,
             Dictionary<string, (string Username, string Password)> sessionCredentials,
             IMessageInService? messageInService,
-            IMessageInParserOrchestrator? orchestrator)
+            IMessageInParserOrchestrator? orchestrator,
+            IEnumerable<string>? disabledSessionKeys = null)
         {
             _sessionKeyMap = sessionKeyMap ?? throw new ArgumentNullException(nameof(sessionKeyMap));
             _sessionCredentials = sessionCredentials ?? new Dictionary<string, (string, string)>();
+            _disabledSessions = disabledSessionKeys != null
+                ? new HashSet<string>(disabledSessionKeys, StringComparer.OrdinalIgnoreCase)
+                : new HashSet<string>();
             _messageInService = messageInService;
             _orchestrator = orchestrator;
         }
@@ -59,6 +64,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
         {
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
+
+            // Om sessionen är inaktiverad — logga ut direkt utan SocketException
+            if (_disabledSessions.Contains(sessionKey))
+            {
+                var session = QF.Session.LookupSession(sessionId);
+                session?.Logout("Session is disabled");
+                return;
+            }
 
             // Log "Logon confirmed" event
             MessageReceived?.Invoke(this, new MessageReceivedEvent(
@@ -110,19 +123,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 if (_sessionCredentials.TryGetValue(sessionKey, out var credentials))
                 {
                     if (!string.IsNullOrEmpty(credentials.Username))
-                    {
-                        message.SetField(new QF.Fields.Username(credentials.Username));  // tag 553
-                    }
+                        message.SetField(new QF.Fields.Username(credentials.Username)); // tag 553
+
                     if (!string.IsNullOrEmpty(credentials.Password))
-                    {
-                        message.SetField(new QF.Fields.Password(credentials.Password));  // tag 554
-                    }
-                    
-                    // Sätt ResetSeqNumFlag=Y för att undvika sekvensfel
+                        message.SetField(new QF.Fields.Password(credentials.Password)); // tag 554
+
                     if (!message.IsSetField(QF.Fields.Tags.ResetSeqNumFlag))
-                    {
-                        message.SetField(new QF.Fields.ResetSeqNumFlag(true));  // tag 141=Y
-                    }
+                        message.SetField(new QF.Fields.ResetSeqNumFlag(true)); // tag 141=Y
                 }
             }
 

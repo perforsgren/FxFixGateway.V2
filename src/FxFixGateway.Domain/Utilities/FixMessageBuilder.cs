@@ -6,9 +6,6 @@ namespace FxFixGateway.Domain.Utilities
     {
         private const char SOH = '\x01';
 
-        // Matches "by <anything>" at the end of a reject reason, e.g. "Manually rejected by P901PEF"
-        private static readonly Regex UserIdPattern = new(@"\bby\s+\S+$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
-
         /// <summary>
         /// Builds a FIX 4.4 TradeCaptureReportAck (AR) — Accepted (TrdRptStatus=0).
         /// </summary>
@@ -39,12 +36,13 @@ namespace FxFixGateway.Domain.Utilities
 
         /// <summary>
         /// Builds a FIX 4.4 TradeCaptureReportAck (AR) — Rejected (TrdRptStatus=1).
-        /// No internal trade ID is included since the trade never reached the internal system.
-        /// Any user ID in the reject reason (e.g. "rejected by P901PEF") is anonymised to "rejected by trader".
+        /// Per Volbroker spec section 3.18 and confirmation from Volbroker support:
+        /// Tag 751 is used as a free-text reject reason displayed to Volbroker users.
+        /// Tag 58 is NOT in the Volbroker spec and is intentionally omitted.
         /// </summary>
         /// <param name="tradeReportId">Tag 571 — echoed from AE tag 571 (TradeReportID).</param>
         /// <param name="externalTradeKey">Tag 881 — echoed from AE tag 818 (Volbroker trade ID).</param>
-        /// <param name="rejectReason">Tag 58 — free-text reject reason (from tsl.LastError).</param>
+        /// <param name="rejectReason">Tag 751 — free-text reject reason displayed to Volbroker users (from tsl.LastError).</param>
         public static string BuildTradeCaptureReportAckReject(
             string tradeReportId,
             string? externalTradeKey,
@@ -54,7 +52,7 @@ namespace FxFixGateway.Domain.Utilities
 
             body.Append($"35=AR{SOH}");
 
-            // 17 = ExecID — "0" since no internal trade ID was assigned
+            // 17 = ExecID — "0" since no internal trade ID was assigned for a rejected trade
             body.Append($"17=0{SOH}");
 
             // 571 = TradeReportID — echo from AE tag 571
@@ -64,18 +62,16 @@ namespace FxFixGateway.Domain.Utilities
             if (!string.IsNullOrEmpty(externalTradeKey))
                 body.Append($"881={externalTradeKey}{SOH}");
 
+            // 527 = SecondaryExecID (Generation) — echo from AE tag 527
+            // TODO: store AE tag 527 in messagein and pass it here instead of fallback "0"
+            body.Append($"527=0{SOH}");
+
             // 939 = TrdRptStatus — 1 = Rejected
             body.Append($"939=1{SOH}");
 
-            // 751 = TradeReportRejectReason — 99 = Other (required when 939=1)
-            body.Append($"751=99{SOH}");
-
-            // 58 = Text — anonymise any internal user ID before sending externally
+            // 751 = TradeReportRejectReason — free text per Volbroker spec (displayed to their users)
             if (!string.IsNullOrEmpty(rejectReason))
-            {
-                var sanitised = UserIdPattern.Replace(rejectReason, "by trader");
-                body.Append($"58={sanitised}{SOH}");
-            }
+                body.Append($"751={rejectReason}{SOH}");
 
             return BuildMessage(body.ToString());
         }

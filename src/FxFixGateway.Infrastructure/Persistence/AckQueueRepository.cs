@@ -39,6 +39,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                 INNER JOIN messagein m ON m.MessageInId = t.MessageInId
                 WHERE tsl.SystemCode = 'FIX_ACK'
                   AND tsl.Status = @StatusReady
+                  AND m.SessionKey IS NOT NULL AND m.SessionKey <> ''
+                  AND m.SourceMessageKey IS NOT NULL AND m.SourceMessageKey <> ''
                 ORDER BY tsl.CreatedUtc ASC
                 LIMIT @MaxCount;";
 
@@ -58,13 +60,13 @@ namespace FxFixGateway.Infrastructure.Persistence
                     result.Add(new PendingAck(
                         tradeId: reader.GetInt64("TradeId"),
                         sessionKey: reader.GetString("SessionKey"),
-                        tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
-                            ? string.Empty : reader.GetString("TradeReportId"),
+                        tradeReportId: reader.GetString("TradeReportId"),
                         externalTradeKey: reader.IsDBNull(reader.GetOrdinal("ExternalTradeKey"))
                             ? string.Empty : reader.GetString("ExternalTradeKey"),
                         internTradeId: reader.IsDBNull(reader.GetOrdinal("InternTradeId"))
                             ? string.Empty : reader.GetString("InternTradeId"),
-                        createdUtc: reader.GetDateTime("CreatedUtc")
+                        createdUtc: reader.IsDBNull(reader.GetOrdinal("CreatedUtc"))
+                            ? DateTime.UtcNow : reader.GetDateTime("CreatedUtc")
                     ));
                 }
             }
@@ -97,6 +99,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                 INNER JOIN messagein m ON m.MessageInId = t.MessageInId
                 WHERE tsl.SystemCode = 'FIX_ACK'
                   AND tsl.Status = @StatusRejected
+                  AND m.SessionKey IS NOT NULL AND m.SessionKey <> ''
+                  AND m.SourceMessageKey IS NOT NULL AND m.SourceMessageKey <> ''
                 ORDER BY tsl.CreatedUtc ASC
                 LIMIT @MaxCount;";
 
@@ -116,12 +120,12 @@ namespace FxFixGateway.Infrastructure.Persistence
                     result.Add(new PendingAck(
                         tradeId: reader.GetInt64("TradeId"),
                         sessionKey: reader.GetString("SessionKey"),
-                        tradeReportId: reader.IsDBNull(reader.GetOrdinal("TradeReportId"))
-                            ? string.Empty : reader.GetString("TradeReportId"),
+                        tradeReportId: reader.GetString("TradeReportId"),
                         externalTradeKey: reader.IsDBNull(reader.GetOrdinal("ExternalTradeKey"))
                             ? string.Empty : reader.GetString("ExternalTradeKey"),
                         internTradeId: string.Empty,
-                        createdUtc: reader.GetDateTime("CreatedUtc"),
+                        createdUtc: reader.IsDBNull(reader.GetOrdinal("CreatedUtc"))
+                            ? DateTime.UtcNow : reader.GetDateTime("CreatedUtc"),
                         isReject: true,
                         rejectReason: reader.IsDBNull(reader.GetOrdinal("LastError"))
                             ? null : reader.GetString("LastError")
@@ -157,7 +161,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                 JOIN trade t ON t.StpTradeId = tsl.StpTradeId
                 JOIN messagein m ON m.MessageInId = t.MessageInId
                 WHERE m.SessionKey = @SessionKey
-                AND tsl.SystemCode = 'FIX_ACK'";
+                  AND tsl.SystemCode = 'FIX_ACK'
+                  AND tsl.Status IS NOT NULL AND tsl.Status <> ''";
 
             if (statusFilter.HasValue)
             {
@@ -192,13 +197,14 @@ namespace FxFixGateway.Infrastructure.Persistence
                 while (await reader.ReadAsync())
                 {
                     var statusStr = reader.GetString("Status");
+
                     var status = statusStr switch
                     {
                         DbAckStatus.New => AckStatus.Pending,
                         DbAckStatus.ReadyToAck => AckStatus.Pending,
                         DbAckStatus.AckSent => AckStatus.Sent,
                         DbAckStatus.AckError => AckStatus.Failed,
-                        DbAckStatus.AckRejected => AckStatus.Pending, // väntar fortfarande på att AR skickas
+                        DbAckStatus.AckRejected => AckStatus.Pending,
                         DbAckStatus.AckRejectSent => AckStatus.Rejected,
                         _ => AckStatus.Pending
                     };
@@ -218,7 +224,8 @@ namespace FxFixGateway.Infrastructure.Persistence
                         internTradeId: reader.IsDBNull(reader.GetOrdinal("AckInternalTradeId"))
                             ? string.Empty : reader.GetString("AckInternalTradeId"),
                         status: status,
-                        createdUtc: reader.GetDateTime("CreatedUtc"),
+                        createdUtc: reader.IsDBNull(reader.GetOrdinal("CreatedUtc"))
+                            ? DateTime.UtcNow : reader.GetDateTime("CreatedUtc"),
                         sentUtc: sentUtc
                     ));
                 }

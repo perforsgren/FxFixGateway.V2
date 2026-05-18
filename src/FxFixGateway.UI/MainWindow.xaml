@@ -7,7 +7,7 @@
         xmlns:vm="clr-namespace:FxFixGateway.UI.ViewModels"
         xmlns:views="clr-namespace:FxFixGateway.UI.Views"
         mc:Ignorable="d"
-        Title="FxFixGateway v2.0" 
+        Title="Fx Fix Gateway DEV" 
         Height="800" 
         Width="1400"
         MinHeight="600"

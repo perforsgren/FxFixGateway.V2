@@ -5605,6 +5605,7 @@
       <value enum="11" description="MUNICIPAL" />
       <value enum="12" description="OTHER" />
       <value enum="13" description="FINANCING" />
+      <value enum="1969" description="VOLBROKER_FX_OPTIONS"/>
     </field>
     <field number="461" name="CFICode" type="STRING" />
     <field number="462" name="UnderlyingProduct" type="INT" />

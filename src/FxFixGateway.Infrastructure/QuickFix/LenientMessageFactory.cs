@@ -75,8 +75,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 711 => 311,   // NoUnderlyings → UnderlyingSymbol
                 552 => 54,    // NoSides → Side
                 453 => 448,   // NoPartyIDs → PartyID
-                802 => 803,   // NoPartySubIDs → PartySubID
+                802 => 523,   // NoPartySubIDs → PartySubID
                 232 => 233,   // NoStipulations → StipulationType
+                683 => 688,   // NoLegStipulations → LegStipulationType  ← SAKNAS
+                539 => 524,   // NoNestedPartyIDs → NestedPartyID
+                804 => 545,   // NoNestedPartySubIDs → NestedPartySubID
                 _ => 0
             };
         }

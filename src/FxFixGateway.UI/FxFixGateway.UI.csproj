@@ -29,6 +29,7 @@
     <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
     <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,6 +44,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Reference Include="FxSharedConfig">
+      <HintPath>..\..\..\FxSharedConfig\bin\Debug\FxSharedConfig.dll</HintPath>
+    </Reference>
     <Reference Include="FxTradeHub.Data.MySql">
       <HintPath>..\..\..\OptionSuite.V2\libs\FxTradeHub\FxTradeHub.Data.MySql\bin\Debug\netstandard2.0\FxTradeHub.Data.MySql.dll</HintPath>
       <Private>True</Private>
@@ -58,6 +62,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <None Update="App.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Update="FIX44_Fenics.xml">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
