@@ -73,6 +73,16 @@ namespace FxFixGateway.Application.Services
             }
 
             _logger.LogInformation("Starting session {SessionKey}", sessionKey);
+
+            // QuickFix kan redan ha loggat in automatiskt när SocketInitiator startades.
+            // Skippa Start() i så fall — sessionen är redan uppe.
+            if (session.Status == SessionStatus.LoggedOn || session.Status == SessionStatus.Connecting)
+            {
+                _logger.LogInformation("Session {SessionKey} already in {Status} — skipping Start()", 
+                    sessionKey, session.Status);
+                return;
+            }
+
             session.Start();
             await _fixEngine.StartSessionAsync(sessionKey);
         }

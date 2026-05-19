@@ -196,17 +196,70 @@ namespace FxFixGateway.UI
                 return new MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
             });
 
+            // Proxy registreras som singleton — QuickFixEngine sätter inner-sender efter InitializeAsync
+            services.AddSingleton<QuickFixSenderProxy>();
+            services.AddSingleton<IMarketDataSubscriber>(sp => sp.GetRequiredService<QuickFixSenderProxy>());
+
+            // Market Data — connection string till fxvol
+            var fxvolConnectionString = AppDbConfig.GetConnectionString("VolManager");
+
+            // Market Data — repositories
+            services.AddSingleton<IMarketSubscriptionRepository>(sp =>
+                new MarketSubscriptionRepository(connectionString));      // fix_config_dev
+
+            services.AddSingleton<IMarketInstrumentRepository>(sp =>
+                new MarketInstrumentRepository(fxvolConnectionString));  // fxvol
+
+            services.AddSingleton<IMarketDataSnapshotRepository>(sp =>
+                new MarketDataSnapshotRepository(fxvolConnectionString));  // fxvol
+
+            services.AddSingleton<IMarketDataService>(sp =>
+            {
+                var snapshotRepo = sp.GetRequiredService<IMarketDataSnapshotRepository>();
+                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var logger       = sp.GetRequiredService<ILogger<MarketDataService>>();
+                return new MarketDataService(snapshotRepo, instrRepo, logger);
+            });
+
+            // Market Data — orchestration
+            services.AddSingleton<IMarketDataOrchestrator>(sp =>
+            {
+                var subscriber   = sp.GetRequiredService<IMarketDataSubscriber>();
+                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var logger       = sp.GetRequiredService<ILogger<MarketDataOrchestrator>>();
+                return new MarketDataOrchestrator(subscriber, instrRepo, logger);
+            });
+
+            services.AddSingleton<ISecurityListService>(sp =>
+            {
+                var subRepo      = sp.GetRequiredService<IMarketSubscriptionRepository>();
+                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var orchestrator = sp.GetRequiredService<IMarketDataOrchestrator>();
+                var logger       = sp.GetRequiredService<ILogger<SecurityListService>>();
+                return new SecurityListService(subRepo, instrRepo, orchestrator, logger);
+            });
+
             // Infrastructure - FIX Engine
             services.AddSingleton<IFixEngine>(sp =>
             {
-                var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
-                var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                var logger         = sp.GetRequiredService<ILogger<QuickFixEngine>>();
+                var dataDictPath   = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                var messageInSvc   = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
+                var tradeOrch      = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
+                var secListSvc     = sp.GetRequiredService<ISecurityListService>();
+                var mdOrchestrator = sp.GetRequiredService<IMarketDataOrchestrator>();
+                var senderProxy    = sp.GetRequiredService<QuickFixSenderProxy>();
+                var mdService      = sp.GetRequiredService<IMarketDataService>();   // ← NY
 
-                // FxTradeHub services
-                var messageInService = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
-                var orchestrator = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
-
-                return new QuickFixEngine(logger, dataDictPath, messageInService, orchestrator);
+                return new QuickFixEngine(
+                    logger,
+                    dataDictPath,
+                    messageInSvc,
+                    tradeOrch,
+                    secListSvc,
+                    mdOrchestrator,
+                    senderProxy,
+                    mdService);   // ← NY
             });
 
             // Application Services

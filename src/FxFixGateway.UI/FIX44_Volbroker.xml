@@ -4970,7 +4970,7 @@
     <field number="250" name="LegRepoCollateralSecurityType" type="INT" />
     <field number="251" name="LegRepurchaseTerm" type="INT" />
     <field number="252" name="LegRepurchaseRate" type="STRING" />
-    <field number="253" name="LegFactor" type="FLOAT" />
+    <field number="253" name="LegFactor" type="STRING" />
     <field number="254" name="LegRedemptionDate" type="LOCALMKTDATE" />
     <field number="255" name="CreditRating" type="STRING" />
     <field number="256" name="UnderlyingCreditRating" type="STRING" />
@@ -5605,6 +5605,8 @@
       <value enum="11" description="MUNICIPAL" />
       <value enum="12" description="OTHER" />
       <value enum="13" description="FINANCING" />
+      <value enum="19" description="VOLBROKER_STANDARD_INTEREST"/>
+      <value enum="20" description="VOLBROKER_SPECIFIC_INTEREST"/>
       <value enum="1969" description="VOLBROKER_FX_OPTIONS"/>
     </field>
     <field number="461" name="CFICode" type="STRING" />
@@ -5886,9 +5888,9 @@
     </field>
     <field number="545" name="NestedPartySubID" type="STRING" />
     <field number="546" name="Scope" type="MULTIPLEVALUESTRING">
-      <value enum="1" description="LOCAL" />
-      <value enum="2" description="NATIONAL" />
-      <value enum="3" description="GLOBAL" />
+      <value enum="0" description="UNRESTRICTED" />
+      <value enum="1" description="ON_SEF_ONLY" />
+      <value enum="2" description="OFF_SEF_ONLY" />
     </field>
     <field number="547" name="MDImplicitDelete" type="BOOLEAN" />
     <field number="548" name="CrossID" type="STRING" />

@@ -22,6 +22,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private readonly IMessageInService? _messageInService;
         private readonly IMessageInParserOrchestrator? _orchestrator;
 
+        // Market data services
+        private readonly ISecurityListService? _securityListService;    
+        private readonly IMarketDataOrchestrator? _mdOrchestrator;      
+        private readonly QuickFixSenderProxy? _senderProxy;
+        private readonly IMarketDataService? _marketDataService;   // ← NY
+
         private readonly Dictionary<string, SSLTunnelProxy> _sslTunnels = new();
 
         private QF.Transport.SocketInitiator? _initiator;
@@ -44,12 +50,20 @@ namespace FxFixGateway.Infrastructure.QuickFix
             ILogger<QuickFixEngine>? logger = null,
             string? dataDictionaryPath = null,
             IMessageInService? messageInService = null,
-            IMessageInParserOrchestrator? orchestrator = null)
+            IMessageInParserOrchestrator? orchestrator = null,
+            ISecurityListService? securityListService = null,
+            IMarketDataOrchestrator? mdOrchestrator = null,
+            QuickFixSenderProxy? senderProxy = null,
+            IMarketDataService? marketDataService = null)          // ← NY
         {
             _logger = logger;
             _dataDictionaryPath = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
             _messageInService = messageInService;
             _orchestrator = orchestrator;
+            _securityListService = securityListService;
+            _mdOrchestrator = mdOrchestrator;
+            _senderProxy = senderProxy;
+            _marketDataService = marketDataService;                // ← NY
         }
 
         public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
@@ -118,40 +132,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _logger?.LogInformation("Building QuickFIX SessionSettings...");
             var builder = new SessionSettingsBuilder(dataDictionaryPath: _dataDictionaryPath);
 
-            // ─── DEBUG: logga genererad config ───────────────────────────────────
-            var generatedConfig = builder.BuildConfigFileContentPublic(configList);
-            _logger?.LogDebug("=== Generated QuickFIX config ===\n{Config}", generatedConfig);
-            // ─────────────────────────────────────────────────────────────────────
-
-            // ─── DEBUG: TCP-test för varje session ───────────────────────────────
-            foreach (var cfg in configList)
-            {
-                var host = cfg.UseSSLTunnel && cfg.SslLocalPort.HasValue ? "127.0.0.1" : cfg.Host;
-                var port = cfg.UseSSLTunnel && cfg.SslLocalPort.HasValue ? cfg.SslLocalPort.Value : cfg.Port;
-
-                _logger?.LogInformation("[{SessionKey}] TCP connectivity test → {Host}:{Port}...", cfg.SessionKey, host, port);
-                try
-                {
-                    using var tcpClient = new System.Net.Sockets.TcpClient();
-                    var connectTask = tcpClient.ConnectAsync(host, port);
-                    var completed = await Task.WhenAny(connectTask, Task.Delay(5000));
-
-                    if (completed == connectTask && tcpClient.Connected)
-                    {
-                        _logger?.LogInformation("[{SessionKey}] ✅ TCP OK — {Host}:{Port} is reachable", cfg.SessionKey, host, port);
-                    }
-                    else
-                    {
-                        _logger?.LogError("[{SessionKey}] ❌ TCP FAILED — {Host}:{Port} not reachable (timeout/refused)", cfg.SessionKey, host, port);
-                    }
-                }
-                catch (Exception tcpEx)
-                {
-                    _logger?.LogError("[{SessionKey}] ❌ TCP EXCEPTION — {Host}:{Port} → {Error}", cfg.SessionKey, host, port, tcpEx.Message);
-                }
-            }
-            // ─────────────────────────────────────────────────────────────────────
-
             try
             {
                 _settings = builder.Build(configList);
@@ -160,6 +140,18 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 _logger?.LogError(ex, "FAILED to build SessionSettings: {Message}", ex.Message);
                 throw;
+            }
+
+            foreach (var cfg in configList)
+            {
+                var dictFile = cfg.DataDictionaryFile ?? "(none configured)";
+                var resolved = !string.IsNullOrEmpty(cfg.DataDictionaryFile) && File.Exists(cfg.DataDictionaryFile)
+                    ? cfg.DataDictionaryFile
+                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, cfg.DataDictionaryFile ?? "");
+                var exists = File.Exists(resolved);
+                _logger?.LogDebug(
+                    "[{SessionKey}] DataDictionary: configured='{Dict}' resolved='{Resolved}' exists={Exists}",
+                    cfg.SessionKey, dictFile, resolved, exists);
             }
 
             _sessionKeyMap = new Dictionary<global::QuickFix.SessionID, string>();
@@ -196,13 +188,28 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 .Select(c => c.SessionKey)
                 .ToList();
 
+            // Skapa QuickFixSender och koppla till proxy nu när sessionIdMap finns
+            if (_senderProxy != null)
+            {
+                var sender = new QuickFixSender(
+                    _sessionIdMap,
+                    _logger as ILogger<QuickFixSender>
+                        ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<QuickFixSender>.Instance);
+
+                _senderProxy.SetInner(sender);
+                _logger?.LogInformation("QuickFixSender initialized and proxy connected");
+            }
+
             _application = new QuickFixApplication(
                 _sessionKeyMap,
                 sessionCredentials,
                 _messageInService,
                 _orchestrator,
-                disabledSessionKeys);  // ← nytt
-
+                disabledSessionKeys,
+                _securityListService,
+                _mdOrchestrator,
+                null,                  // mdSubscriber — hanteras via proxy
+                _marketDataService);   // ← NY
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
             _application.MessageSent += OnMessageSent;
