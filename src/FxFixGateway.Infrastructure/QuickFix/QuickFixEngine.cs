@@ -15,55 +15,60 @@ namespace FxFixGateway.Infrastructure.QuickFix
 {
     public class QuickFixEngine : IFixEngine, IDisposable
     {
-        private readonly ILogger<QuickFixEngine>? _logger;
-        private readonly string _dataDictionaryPath;
-
-        // FxTradeHub services
-        private readonly IMessageInService? _messageInService;
-        private readonly IMessageInParserOrchestrator? _orchestrator;
-
-        // Market data services
-        private readonly ISecurityListService? _securityListService;    
-        private readonly IMarketDataOrchestrator? _mdOrchestrator;      
-        private readonly QuickFixSenderProxy? _senderProxy;
-        private readonly IMarketDataService? _marketDataService;   // ← NY
+        private readonly ILogger<QuickFixEngine>?        _logger;
+        private readonly string                          _dataDictionaryPath;
+        private readonly IMessageInService?              _messageInService;
+        private readonly IMessageInParserOrchestrator?   _orchestrator;
+        private readonly ISecurityListService?           _securityListService;
+        private readonly IMarketDataOrchestrator?        _mdOrchestrator;
+        private readonly QuickFixSenderProxy?            _senderProxy;
+        private readonly IMarketDataService?             _marketDataService;
+        private readonly IQuoteRequestService?           _quoteRequestService;
+        private readonly ISessionHeartbeatNotifier?      _heartbeatNotifier;
+        private readonly IPushNotificationService?         _pushNotification;
 
         private readonly Dictionary<string, SSLTunnelProxy> _sslTunnels = new();
 
         private QF.Transport.SocketInitiator? _initiator;
-        private QuickFixApplication? _application;
-        private QF.SessionSettings? _settings;
+        private QuickFixApplication?          _application;
+        private QF.SessionSettings?           _settings;
         private Dictionary<QF.SessionID, string>? _sessionKeyMap;
         private Dictionary<string, QF.SessionID>? _sessionIdMap;
-        private Dictionary<string, bool>? _sessionAutoStart;
+        private Dictionary<string, bool>?         _sessionAutoStart;
 
         private bool _initialized;
         private bool _running;
 
         public event EventHandler<SessionStatusChangedEvent>? StatusChanged;
-        public event EventHandler<MessageReceivedEvent>? MessageReceived;
-        public event EventHandler<MessageSentEvent>? MessageSent;
-        public event EventHandler<HeartbeatReceivedEvent>? HeartbeatReceived;
-        public event EventHandler<ErrorOccurredEvent>? ErrorOccurred;
+        public event EventHandler<MessageReceivedEvent>?      MessageReceived;
+        public event EventHandler<MessageSentEvent>?          MessageSent;
+        public event EventHandler<HeartbeatReceivedEvent>?    HeartbeatReceived;
+        public event EventHandler<ErrorOccurredEvent>?        ErrorOccurred;
 
         public QuickFixEngine(
-            ILogger<QuickFixEngine>? logger = null,
-            string? dataDictionaryPath = null,
-            IMessageInService? messageInService = null,
-            IMessageInParserOrchestrator? orchestrator = null,
-            ISecurityListService? securityListService = null,
-            IMarketDataOrchestrator? mdOrchestrator = null,
-            QuickFixSenderProxy? senderProxy = null,
-            IMarketDataService? marketDataService = null)          // ← NY
+            ILogger<QuickFixEngine>? logger                    = null,
+            string? dataDictionaryPath                         = null,
+            IMessageInService? messageInService                = null,
+            IMessageInParserOrchestrator? orchestrator         = null,
+            ISecurityListService? securityListService          = null,
+            IMarketDataOrchestrator? mdOrchestrator            = null,
+            QuickFixSenderProxy? senderProxy                   = null,
+            IMarketDataService? marketDataService              = null,
+            IQuoteRequestService? quoteRequestService          = null,
+            ISessionHeartbeatNotifier? heartbeatNotifier       = null,
+            IPushNotificationService? pushNotification         = null)
         {
-            _logger = logger;
-            _dataDictionaryPath = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
-            _messageInService = messageInService;
-            _orchestrator = orchestrator;
+            _logger              = logger;
+            _dataDictionaryPath  = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
+            _messageInService    = messageInService;
+            _orchestrator        = orchestrator;
             _securityListService = securityListService;
-            _mdOrchestrator = mdOrchestrator;
-            _senderProxy = senderProxy;
-            _marketDataService = marketDataService;                // ← NY
+            _mdOrchestrator      = mdOrchestrator;
+            _senderProxy         = senderProxy;
+            _marketDataService   = marketDataService;
+            _quoteRequestService = quoteRequestService;
+            _heartbeatNotifier   = heartbeatNotifier;
+            _pushNotification    = pushNotification;
         }
 
         public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
@@ -208,16 +213,21 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 disabledSessionKeys,
                 _securityListService,
                 _mdOrchestrator,
-                null,                  // mdSubscriber — hanteras via proxy
-                _marketDataService);   // ← NY
+                null,                    // mdSubscriber — hanteras via proxy
+                _marketDataService,
+                _quoteRequestService,
+                _heartbeatNotifier);
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
             _application.MessageSent += OnMessageSent;
             _application.HeartbeatReceived += OnHeartbeatReceived;
             _application.ErrorOccurred += OnErrorOccurred;
 
-            var storeFactory = new global::QuickFix.Store.FileStoreFactory(_settings);
-            var logFactory = new global::QuickFix.Logger.FileLogFactory(_settings);
+            var storeFactory   = new global::QuickFix.Store.FileStoreFactory(_settings);
+            var logFactory     = new FxFixGateway.Infrastructure.Logging.RollingFixLogFactory(
+                                     basePath:         "log",
+                                     maxFileSizeBytes: 20 * 1024 * 1024,   // 20 MB per fil
+                                     retainedDays:     7);                  // Behåll 7 dagars audit-loggar
             var messageFactory = new LenientMessageFactory();  // ← var: DefaultMessageFactory()    //TODO: KOLLA DETTA!!!
 
             _logger?.LogInformation("Creating SocketInitiator...");
@@ -396,7 +406,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             return Task.CompletedTask;
         }
 
-        public Task ShutdownAsync()
+        public async Task ShutdownAsync()
         {
             _logger?.LogInformation("=== QuickFIX Engine Shutting Down ===");
 
@@ -404,7 +414,30 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 _logger?.LogInformation("Stopping SocketInitiator...");
                 _initiator.Stop();
+                
+                // QuickFIX/n's Stop() är synkron men sockets stängs asynkront
+                var deadline = DateTime.UtcNow.AddSeconds(3);
+                while (!_initiator.IsStopped && DateTime.UtcNow < deadline)
+                    await Task.Delay(50);
+
+                if (!_initiator.IsStopped)
+                    _logger?.LogWarning("SocketInitiator did not stop cleanly within 3s");
+
                 _running = false;
+            }
+
+            // Wait for any push notification triggered by OnLogout to complete
+            if (_application != null)
+            {
+                _logger?.LogInformation("Waiting for pending push notification...");
+                try
+                {
+                    await _application.WaitForPendingNotificationAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger?.LogWarning(ex, "Push notification failed during shutdown");
+                }
             }
 
             // STÄNG SSL TUNNELS
@@ -416,7 +449,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _sslTunnels.Clear();
 
             _logger?.LogInformation("=== QuickFIX Engine Shutdown Complete ===");
-            return Task.CompletedTask;
         }
 
 

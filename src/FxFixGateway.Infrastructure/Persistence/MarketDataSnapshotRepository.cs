@@ -8,7 +8,7 @@ namespace FxFixGateway.Infrastructure.Persistence
     /// <summary>
     /// Persisterar MarketDataSnapshot (35=W) i fxvol.market_data_snapshots
     /// och tillhörande entries i fxvol.market_data_entries.
-    /// Använder transaction för att säkerställa atomicitet.
+    /// Upsertar även prisdjupet i fxvol.active_market_book.
     /// </summary>
     public class MarketDataSnapshotRepository : IMarketDataSnapshotRepository
     {
@@ -27,8 +27,8 @@ namespace FxFixGateway.Infrastructure.Persistence
             const string sql = @"
                 SELECT COUNT(1)
                 FROM fxvol.market_instruments
-                WHERE session_key  = @SessionKey
-                  AND security_id  = @SecurityId
+                WHERE session_key   = @SessionKey
+                  AND security_id   = @SecurityId
                   AND is_subscribed = TRUE;";
 
             try
@@ -59,26 +59,25 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                // Insert snapshot
                 const string snapshotSql = @"
                     INSERT INTO fxvol.market_data_snapshots
-                        (session_key, security_id, md_req_id, currency_pair, product, raw_payload, received_utc)
+                        (session_key, security_id, md_req_id, currency_pair, product, raw_payload, received_utc, entry_count)
                     VALUES
-                        (@SessionKey, @SecurityId, @MdReqId, @CurrencyPair, @Product, @RawPayload, @ReceivedUtc);
+                        (@SessionKey, @SecurityId, @MdReqId, @CurrencyPair, @Product, @RawPayload, @ReceivedUtc, @EntryCount);
                     SELECT LAST_INSERT_ID();";
 
                 await using var snapshotCmd = new MySqlCommand(snapshotSql, connection, transaction);
-                snapshotCmd.Parameters.AddWithValue("@SessionKey",  snapshot.SessionKey);
-                snapshotCmd.Parameters.AddWithValue("@SecurityId",  snapshot.SecurityId);
-                snapshotCmd.Parameters.AddWithValue("@MdReqId",     (object?)snapshot.MdReqId    ?? DBNull.Value);
-                snapshotCmd.Parameters.AddWithValue("@CurrencyPair",(object?)snapshot.CurrencyPair?? DBNull.Value);
-                snapshotCmd.Parameters.AddWithValue("@Product",     (object?)snapshot.Product    ?? DBNull.Value);
-                snapshotCmd.Parameters.AddWithValue("@RawPayload",  snapshot.RawPayload);
-                snapshotCmd.Parameters.AddWithValue("@ReceivedUtc", snapshot.ReceivedUtc);
+                snapshotCmd.Parameters.AddWithValue("@SessionKey",   snapshot.SessionKey);
+                snapshotCmd.Parameters.AddWithValue("@SecurityId",   snapshot.SecurityId);
+                snapshotCmd.Parameters.AddWithValue("@MdReqId",      (object?)snapshot.MdReqId      ?? DBNull.Value);
+                snapshotCmd.Parameters.AddWithValue("@CurrencyPair", (object?)snapshot.CurrencyPair ?? DBNull.Value);
+                snapshotCmd.Parameters.AddWithValue("@Product",      (object?)snapshot.Product      ?? DBNull.Value);
+                snapshotCmd.Parameters.AddWithValue("@RawPayload",   snapshot.RawPayload);
+                snapshotCmd.Parameters.AddWithValue("@ReceivedUtc",  snapshot.ReceivedUtc);
+                snapshotCmd.Parameters.AddWithValue("@EntryCount",   snapshot.Entries.Count);
 
                 var snapshotId = Convert.ToInt64(await snapshotCmd.ExecuteScalarAsync());
 
-                // Insert entries
                 if (snapshot.Entries.Count > 0)
                 {
                     const string entrySql = @"
@@ -99,7 +98,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                         entryCmd.Parameters.AddWithValue("@MdEntryType",    entry.MdEntryType);
                         entryCmd.Parameters.AddWithValue("@Price",          (object?)entry.Price          ?? DBNull.Value);
                         entryCmd.Parameters.AddWithValue("@Size",           (object?)entry.Size           ?? DBNull.Value);
-                        entryCmd.Parameters.AddWithValue("@QuoteCondition", (object?)entry.QuoteCondition ?? DBNull.Value);
+                        entryCmd.Parameters.AddWithValue("@QuoteCondition", (object?)entry.QuoteCondition?.Truncate(50) ?? DBNull.Value);
                         entryCmd.Parameters.AddWithValue("@TradeCondition", (object?)entry.TradeCondition ?? DBNull.Value);
                         entryCmd.Parameters.AddWithValue("@PositionNo",     (object?)entry.PositionNo     ?? DBNull.Value);
                         entryCmd.Parameters.AddWithValue("@Originator",     (object?)entry.Originator     ?? DBNull.Value);
@@ -126,5 +125,57 @@ namespace FxFixGateway.Infrastructure.Persistence
                 throw;
             }
         }
+
+        public async Task UpsertBookEntriesAsync(IReadOnlyList<ActiveMarketBookEntry> entries)
+        {
+            if (entries.Count == 0)
+                return;
+
+            // Upsert per entry: ON DUPLICATE KEY uppdaterar befintlig position
+            const string sql = @"
+                INSERT INTO fxvol.active_market_book
+                    (security_id, session_key, currency_pair, md_entry_type, position_no,
+                     price, size, originator, trader_id, quote_condition, snapshot_id, updated_utc)
+                VALUES
+                    (@SecurityId, @SessionKey, @CurrencyPair, @MdEntryType, @PositionNo,
+                     @Price, @Size, @Originator, @TraderId, @QuoteCondition, @SnapshotId, @UpdatedUtc)
+                ON DUPLICATE KEY UPDATE
+                    price           = VALUES(price),
+                    size            = VALUES(size),
+                    originator      = VALUES(originator),
+                    trader_id       = VALUES(trader_id),
+                    quote_condition = VALUES(quote_condition),
+                    currency_pair   = VALUES(currency_pair),
+                    snapshot_id     = VALUES(snapshot_id),
+                    updated_utc     = VALUES(updated_utc);";
+
+            await using var connection = new MySqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            foreach (var entry in entries)
+            {
+                await using var cmd = new MySqlCommand(sql, connection);
+                cmd.Parameters.AddWithValue("@SecurityId",     entry.SecurityId);
+                cmd.Parameters.AddWithValue("@SessionKey",     entry.SessionKey);
+                cmd.Parameters.AddWithValue("@CurrencyPair",   (object?)entry.CurrencyPair   ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@MdEntryType",    entry.MdEntryType);
+                cmd.Parameters.AddWithValue("@PositionNo",     entry.PositionNo);
+                cmd.Parameters.AddWithValue("@Price",          (object?)entry.Price          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Size",           (object?)entry.Size           ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Originator",     (object?)entry.Originator     ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@TraderId",       (object?)entry.TraderId       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@QuoteCondition", (object?)entry.QuoteCondition?.Truncate(50) ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SnapshotId",     entry.SnapshotId);
+                cmd.Parameters.AddWithValue("@UpdatedUtc",     entry.UpdatedUtc);
+
+                await cmd.ExecuteNonQueryAsync();
+            }
+        }
+    }
+
+    internal static class StringExtensions
+    {
+        public static string Truncate(this string value, int maxLength)
+            => value.Length <= maxLength ? value : value[..maxLength];
     }
 }

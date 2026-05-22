@@ -1,4 +1,4 @@
-using FxFixGateway.Domain.Entities;
+ï»¿using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -6,30 +6,28 @@ using Microsoft.Extensions.Logging;
 namespace FxFixGateway.Application.Services
 {
     /// <summary>
-    /// Hanterar inkommande MarketDataSnapshot (35=W) från Volbroker/TFSICAP.
+    /// Hanterar inkommande MarketDataSnapshot (35=W) frÃ¥n Volbroker/TFSICAP.
     ///
-    /// Flöde:
+    /// FlÃ¶de:
     ///   1. Ta emot MarketDataSnapshotDto (parsad i Infrastructure med dictionary)
-    ///   2. Filtrera: kontrollera att SecurityID är prenumererat (is_subscribed=true)
-    ///   3. Berika med CurrencyPair/Product från market_instruments
+    ///   2. Filtrera: kontrollera att SecurityID Ã¤r prenumererat (is_subscribed=true)
+    ///   3. Berika med CurrencyPair/Product frÃ¥n market_instruments
     ///   4. Persistera snapshot + entries i fxvol
+    ///   5. Upserta prisdjupet i active_market_book
     ///
-    /// TODO: Vid hög volym — flytta DB-skrivning till en bakgrundskö (Channel<T>)
-    ///       för att undvika att blockera FIX-tråden.
+    /// TODO: Vid hÃ¶g volym â€” flytta DB-skrivning till en bakgrundskÃ¶ (Channel<T>)
+    ///       fÃ¶r att undvika att blockera FIX-trÃ¥den.
     /// </summary>
     public class MarketDataService : IMarketDataService
     {
         private readonly IMarketDataSnapshotRepository _snapshotRepo;
-        private readonly IMarketInstrumentRepository _instrumentRepo;
-        private readonly ILogger<MarketDataService> _logger;
+        private readonly IMarketInstrumentRepository   _instrumentRepo;
+        private readonly ILogger<MarketDataService>    _logger;
 
-        // Cache av prenumererade SecurityIDs per session för att undvika DB-query per meddelande
-        // Populeras vid första träff och rensas vid reconnect (session-scoped)
-        private readonly Dictionary<string, HashSet<string>> _subscribedCache = new();
+        private readonly Dictionary<string, HashSet<string>>                                     _subscribedCache  = new();
         private readonly Dictionary<string, Dictionary<string, (string? CurrencyPair, int? Product)>> _instrumentCache = new();
         private readonly object _cacheLock = new();
 
-        // TODO: Flytta till konfiguration
         private static readonly HashSet<string> MarketDataSessions = new(StringComparer.OrdinalIgnoreCase)
         {
             "VOLB_FIXHUB_DEV",
@@ -38,8 +36,8 @@ namespace FxFixGateway.Application.Services
 
         public MarketDataService(
             IMarketDataSnapshotRepository snapshotRepo,
-            IMarketInstrumentRepository instrumentRepo,
-            ILogger<MarketDataService> logger)
+            IMarketInstrumentRepository   instrumentRepo,
+            ILogger<MarketDataService>    logger)
         {
             _snapshotRepo   = snapshotRepo   ?? throw new ArgumentNullException(nameof(snapshotRepo));
             _instrumentRepo = instrumentRepo ?? throw new ArgumentNullException(nameof(instrumentRepo));
@@ -53,24 +51,21 @@ namespace FxFixGateway.Application.Services
 
             if (string.IsNullOrEmpty(dto.SecurityId))
             {
-                _logger.LogDebug("[{Session}] 35=W missing SecurityId (tag 48) — skipping", sessionKey);
+                _logger.LogDebug("[{Session}] 35=W missing SecurityId (tag 48) â€” skipping", sessionKey);
                 return;
             }
 
-            // Filtrera: är detta instrument prenumererat?
             var isSubscribed = await _snapshotRepo.IsSubscribedAsync(sessionKey, dto.SecurityId);
             if (!isSubscribed)
             {
                 _logger.LogDebug(
-                    "[{Session}] 35=W SecurityId={SecId} not subscribed — skipping",
+                    "[{Session}] 35=W SecurityId={SecId} not subscribed â€” skipping",
                     sessionKey, dto.SecurityId);
                 return;
             }
 
-            // Hämta CurrencyPair/Product från instrument-cachen (undvik DB per snapshot)
             var (currencyPair, product) = await GetInstrumentMetaAsync(sessionKey, dto.SecurityId);
 
-            // Bygg snapshot-entity
             var snapshot = new MarketDataSnapshot
             {
                 SessionKey   = sessionKey,
@@ -80,7 +75,8 @@ namespace FxFixGateway.Application.Services
                 Product      = product,
                 RawPayload   = dto.RawPayload,
                 ReceivedUtc  = DateTime.UtcNow,
-                Entries      = dto.Entries.Select(e => MapEntry(e, dto.SecurityId)).ToList()
+                Entries      = dto.Entries.Select(e => MapEntry(e, dto.SecurityId)).ToList(),
+                EntryCount   = dto.Entries.Count
             };
 
             try
@@ -90,6 +86,17 @@ namespace FxFixGateway.Application.Services
                 _logger.LogDebug(
                     "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Entries={Count}",
                     sessionKey, snapshotId, dto.SecurityId, currencyPair, snapshot.Entries.Count);
+
+                // Upserta prisdjupet â€“ bara entries med PositionNo (Bid/Ask i orderboken)
+                var bookEntries = BuildBookEntries(snapshot, snapshotId);
+                if (bookEntries.Count > 0)
+                {
+                    await _snapshotRepo.UpsertBookEntriesAsync(bookEntries);
+
+                    _logger.LogDebug(
+                        "[{Session}] active_market_book updated: SecurityId={SecId} Positions={Count}",
+                        sessionKey, dto.SecurityId, bookEntries.Count);
+                }
             }
             catch (Exception ex)
             {
@@ -100,9 +107,33 @@ namespace FxFixGateway.Application.Services
         }
 
         /// <summary>
-        /// Hämtar CurrencyPair och Product för ett SecurityID.
-        /// Cachar resultatet i minnet per session för att minimera DB-queries.
+        /// Bygger ActiveMarketBookEntry-lista frÃ¥n snapshot-entries som har PositionNo.
+        /// Trades (MdEntryType=2) ingÃ¥r inte i prisdjupet.
         /// </summary>
+        private static List<ActiveMarketBookEntry> BuildBookEntries(MarketDataSnapshot snapshot, long snapshotId)
+        {
+            var now = DateTime.UtcNow;
+
+            return snapshot.Entries
+                .Where(e => e.PositionNo.HasValue && e.MdEntryType != "2")
+                .Select(e => new ActiveMarketBookEntry
+                {
+                    SecurityId     = snapshot.SecurityId,
+                    SessionKey     = snapshot.SessionKey,
+                    CurrencyPair   = snapshot.CurrencyPair,
+                    MdEntryType    = e.MdEntryType,
+                    PositionNo     = e.PositionNo!.Value,
+                    Price          = e.Price,
+                    Size           = e.Size,
+                    Originator     = e.Originator,
+                    TraderId       = e.TraderId,
+                    QuoteCondition = e.QuoteCondition,
+                    SnapshotId     = snapshotId,
+                    UpdatedUtc     = now
+                })
+                .ToList();
+        }
+
         private async Task<(string? CurrencyPair, int? Product)> GetInstrumentMetaAsync(
             string sessionKey, string securityId)
         {
@@ -120,6 +151,7 @@ namespace FxFixGateway.Application.Services
             {
                 if (!_instrumentCache.ContainsKey(sessionKey))
                     _instrumentCache[sessionKey] = new Dictionary<string, (string?, int?)>();
+
                 _instrumentCache[sessionKey][securityId] = meta;
             }
 
@@ -129,22 +161,20 @@ namespace FxFixGateway.Application.Services
         private static MarketDataEntry MapEntry(MarketDataEntryDto dto, string securityId)
         {
             DateTime? entryDate = null;
-            if (!string.IsNullOrEmpty(dto.EntryDate) &&
-                DateTime.TryParseExact(dto.EntryDate, "yyyyMMdd",
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    System.Globalization.DateTimeStyles.None, out var d))
-                entryDate = d;
+            if (dto.EntryDate is { Length: 8 } d &&
+                DateTime.TryParseExact(d, "yyyyMMdd", null,
+                    System.Globalization.DateTimeStyles.None, out var parsedDate))
+                entryDate = parsedDate;
 
             TimeSpan? entryTime = null;
             if (!string.IsNullOrEmpty(dto.EntryTime) &&
-                TimeSpan.TryParseExact(dto.EntryTime, @"hh\:mm\:ss\.fff",
-                    System.Globalization.CultureInfo.InvariantCulture, out var t))
-                entryTime = t;
+                TimeSpan.TryParse(dto.EntryTime, out var parsedTime))
+                entryTime = parsedTime;
 
             return new MarketDataEntry
             {
                 SecurityId     = securityId,
-                MdEntryType    = dto.MdEntryType ?? string.Empty,
+                MdEntryType    = dto.MdEntryType    ?? string.Empty,
                 Price          = dto.Price,
                 Size           = dto.Size,
                 QuoteCondition = dto.QuoteCondition,

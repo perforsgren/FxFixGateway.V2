@@ -1,0 +1,42 @@
+using FxFixGateway.Domain.Interfaces;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace FxFixGateway.Application.BackgroundServices
+{
+    /// <summary>
+    /// Owns the lifecycle of the FIX engine. Hosted service guarantees StopAsync
+    /// runs before the process exits, with proper cancellation.
+    /// </summary>
+    public sealed class FixEngineHostedService : IHostedService
+    {
+        private readonly IFixEngine _fixEngine;
+        private readonly ILogger<FixEngineHostedService> _logger;
+
+        public FixEngineHostedService(
+            IFixEngine fixEngine,
+            ILogger<FixEngineHostedService> logger)
+        {
+            _fixEngine = fixEngine;
+            _logger    = logger;
+        }
+
+        public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+        public async Task StopAsync(CancellationToken cancellationToken)
+        {
+            _logger.LogInformation("FixEngineHostedService: stopping FIX engine...");
+            try
+            {
+                await _fixEngine.ShutdownAsync().WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "FIX engine shutdown did not complete cleanly");
+            }
+        }
+    }
+}

@@ -16,5 +16,7 @@ namespace FxFixGateway.Domain.Entities
         public DateTime ReceivedUtc { get; set; }
 
         public List<MarketDataEntry> Entries { get; set; } = new();
+
+        public int EntryCount { get; set; }
     }
 }

@@ -18,5 +18,12 @@ namespace FxFixGateway.Domain.Interfaces
         /// Spara snapshot + entries i ett transaction-scope.
         /// </summary>
         Task<long> InsertSnapshotAsync(MarketDataSnapshot snapshot);
+
+        /// <summary>
+        /// Upsertar prisdjupet för ett instrument baserat på en ny 35=W.
+        /// Varje position identifieras unikt av (security_id, session_key, md_entry_type, position_no).
+        /// QuoteCondition=G eller saknat price innebär att positionen är inaktiv.
+        /// </summary>
+        Task UpsertBookEntriesAsync(IReadOnlyList<ActiveMarketBookEntry> entries);
     }
 }

@@ -1,7 +1,9 @@
 ﻿using FxFixGateway.Application.BackgroundServices;
 using FxFixGateway.Application.Services;
+using FxFixGateway.Domain.Enums;                                          // DisconnectReason
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Infrastructure.Logging;
+using FxFixGateway.Infrastructure.Notifications;                          // PushoverNotificationService
 using FxFixGateway.Infrastructure.Persistence;
 using FxFixGateway.Infrastructure.QuickFix;
 using FxFixGateway.UI.ViewModels;
@@ -30,30 +32,15 @@ namespace FxFixGateway.UI
     {
         private IHost? _host;
 
-        protected override void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(StartupEventArgs e)
         {
-            AppDomain.CurrentDomain.FirstChanceException += (sender, args) =>
-            {
-                // Ignorera känd race condition i QuickFIX/n vid disconnect
-                if (args.Exception is ObjectDisposedException ode &&
-                    args.Exception.StackTrace?.Contains("SocketInitiatorThread") == true)
-                    return;
-
-                if (args.Exception.Source?.Contains("QuickFix") == true ||
-                    args.Exception.StackTrace?.Contains("QuickFix") == true)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[QuickFIX FirstChance] {args.Exception.GetType().Name}: {args.Exception.Message}\n{args.Exception.StackTrace}");
-                }
-            };
-
             base.OnStartup(e);
 
             SerilogConfiguration.Configure();
 
 #if DEBUG
-            // Suppress WPF binding errors in debug output (MaterialDesign HintAssist issue)
-            System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level = System.Diagnostics.SourceLevels.Critical;
+            System.Diagnostics.PresentationTraceSources.DataBindingSource.Switch.Level =
+                System.Diagnostics.SourceLevels.Critical;
 #endif
 
             try
@@ -71,7 +58,7 @@ namespace FxFixGateway.UI
                     .UseSerilog()
                     .Build();
 
-                _host.Start();
+                await _host.StartAsync();
 
                 // Ensure MessageProcessingService is instantiated to register event handlers
                 _ = _host.Services.GetRequiredService<MessageProcessingService>();
@@ -82,7 +69,7 @@ namespace FxFixGateway.UI
             catch (Exception ex)
             {
                 Log.Fatal(ex, "APPLICATION STARTUP FAILED");
-                
+
                 var fullError = GetFullExceptionDetails(ex);
                 var errorLogPath = Path.Combine(Directory.GetCurrentDirectory(), "startup_error.txt");
                 File.WriteAllText(errorLogPath, fullError);
@@ -125,27 +112,33 @@ namespace FxFixGateway.UI
         {
             Log.Information("Application shutting down...");
 
-            try
+            if (_host != null)
             {
-                if (_host != null)
+                // Sätt disconnect-anledning INNAN hosten stoppar (som triggar ShutdownAsync → OnLogout)
+                var fixApp = _host.Services.GetService<QuickFixApplication>();
+                if (fixApp != null)
+                    fixApp.PendingDisconnectReason = DisconnectReason.UserExit;
+
+                // Skicka push direkt — innan FIX-sessionen stängs
+                var push = _host.Services.GetService<IPushNotificationService>();
+                if (push != null)
                 {
-                    var fixEngine = _host.Services.GetService<IFixEngine>();
-                    if (fixEngine != null)
+                    try
                     {
-                        Log.Information("Shutting down FIX engine gracefully...");
-                        await fixEngine.ShutdownAsync();
-                        await Task.Delay(1000); // Give QuickFIX time to send logout messages
+                        await push.SendDisconnectAsync("Gateway", DisconnectReason.UserExit)
+                                  .WaitAsync(TimeSpan.FromSeconds(4));
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning(ex, "Push notification failed during exit");
                     }
                 }
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex, "Error during graceful shutdown");
+
+                await _host.StopAsync(TimeSpan.FromSeconds(10));
+                _host.Dispose();
             }
 
-            _host?.Dispose();
             SerilogConfiguration.Close();
-
             base.OnExit(e);
         }
 
@@ -242,14 +235,17 @@ namespace FxFixGateway.UI
             // Infrastructure - FIX Engine
             services.AddSingleton<IFixEngine>(sp =>
             {
-                var logger         = sp.GetRequiredService<ILogger<QuickFixEngine>>();
-                var dataDictPath   = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                var messageInSvc   = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
-                var tradeOrch      = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
-                var secListSvc     = sp.GetRequiredService<ISecurityListService>();
-                var mdOrchestrator = sp.GetRequiredService<IMarketDataOrchestrator>();
-                var senderProxy    = sp.GetRequiredService<QuickFixSenderProxy>();
-                var mdService      = sp.GetRequiredService<IMarketDataService>();   // ← NY
+                var logger            = sp.GetRequiredService<ILogger<QuickFixEngine>>();
+                var dataDictPath      = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                var messageInSvc      = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
+                var tradeOrch         = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
+                var secListSvc        = sp.GetRequiredService<ISecurityListService>();
+                var mdOrchestrator    = sp.GetRequiredService<IMarketDataOrchestrator>();
+                var senderProxy       = sp.GetRequiredService<QuickFixSenderProxy>();
+                var mdService         = sp.GetRequiredService<IMarketDataService>();
+                var quoteRequestSvc   = sp.GetRequiredService<IQuoteRequestService>();
+                var heartbeatNotifier = sp.GetRequiredService<ISessionHeartbeatNotifier>();
+                var pushNotification  = sp.GetRequiredService<IPushNotificationService>(); // ← lägg till
 
                 return new QuickFixEngine(
                     logger,
@@ -259,7 +255,10 @@ namespace FxFixGateway.UI
                     secListSvc,
                     mdOrchestrator,
                     senderProxy,
-                    mdService);   // ← NY
+                    mdService,
+                    quoteRequestSvc,
+                    heartbeatNotifier,
+                    pushNotification); // ← lägg till
             });
 
             // Application Services
@@ -276,6 +275,15 @@ namespace FxFixGateway.UI
             // Background Services
             services.AddHostedService<AckPollingService>();
 
+            // Gateway heartbeat — skriver till fxvol.gateway_heartbeat var 2:e sekund
+            services.AddSingleton<IGatewayHeartbeatRepository>(sp =>
+                new GatewayHeartbeatRepository(fxvolConnectionString));
+
+            services.AddSingleton<GatewayHeartbeatService>();
+            services.AddHostedService(sp => sp.GetRequiredService<GatewayHeartbeatService>());
+            services.AddSingleton<ISessionHeartbeatNotifier>(sp =>
+                sp.GetRequiredService<GatewayHeartbeatService>());
+    
             // ViewModels
             services.AddTransient<SessionListViewModel>();
             services.AddTransient<MainViewModel>();
@@ -300,8 +308,24 @@ namespace FxFixGateway.UI
 
             var path = System.Configuration.ConfigurationManager.AppSettings["AppConfigPath"];
             Log.Information("AppConfigPath = {Path}", path);
+
+            // Quote Request — repository + service
+            services.AddSingleton<IQuoteRequestRepository>(sp =>
+                new QuoteRequestRepository(fxvolConnectionString));
+
+            services.AddSingleton<IQuoteRequestService>(sp =>
+            {
+                var quoteRepo    = sp.GetRequiredService<IQuoteRequestRepository>();
+                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var subRepo      = sp.GetRequiredService<IMarketSubscriptionRepository>();
+                var logger       = sp.GetRequiredService<ILogger<QuoteRequestService>>();
+                return new QuoteRequestService(quoteRepo, instrRepo, subRepo, logger);
+            });
+
+            services.AddSingleton<IPushNotificationService, PushoverNotificationService>();
+            services.AddHostedService<FixEngineHostedService>();
         }
 
-
+        public IServiceProvider? Services => _host?.Services;
     }
 }

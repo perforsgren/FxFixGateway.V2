@@ -1,6 +1,12 @@
-﻿using System.Windows;
+﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using FxFixGateway.Domain.Enums;
+using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.UI.ViewModels;
 using Microsoft.Extensions.DependencyInjection;
+using Serilog;
 
 namespace FxFixGateway.UI
 {
@@ -9,6 +15,8 @@ namespace FxFixGateway.UI
     /// </summary>
     public partial class MainWindow : Window
     {
+        private bool _shutdownCompleted;
+
         public MainWindow()
         {
             InitializeComponent();

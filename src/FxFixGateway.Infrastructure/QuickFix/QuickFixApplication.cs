@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using QF = global::QuickFix;
 
 namespace FxFixGateway.Infrastructure.QuickFix
@@ -18,41 +19,58 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private readonly Dictionary<QF.SessionID, string> _sessionKeyMap;
         private readonly Dictionary<string, (string Username, string Password)> _sessionCredentials;
         private readonly HashSet<string> _disabledSessions;
-        private readonly IMessageInService? _messageInService;
+        private readonly IMessageInService?            _messageInService;
         private readonly IMessageInParserOrchestrator? _orchestrator;
-        private readonly ISecurityListService? _securityListService;
-        private readonly IMarketDataOrchestrator? _mdOrchestrator;
-        private readonly IMarketDataSubscriber? _mdSubscriber;
-        private readonly IMarketDataService? _marketDataService;     // ← NY
+        private readonly ISecurityListService?         _securityListService;
+        private readonly IMarketDataOrchestrator?      _mdOrchestrator;
+        private readonly IMarketDataSubscriber?        _mdSubscriber;
+        private readonly IMarketDataService?           _marketDataService;
+        private readonly IQuoteRequestService?         _quoteRequestService;
+        private readonly ISessionHeartbeatNotifier?    _heartbeatNotifier;
+        private readonly IPushNotificationService?     _pushNotification;
+
+        // Set this flag before intentional shutdown so OnLogout uses correct reason
+        public DisconnectReason PendingDisconnectReason { get; set; } = DisconnectReason.Unknown;
+
+        private volatile Task _pendingNotification = Task.CompletedTask;
+
+        /// <summary>Waits for any in-flight push notification to finish.</summary>
+        public Task WaitForPendingNotificationAsync() => _pendingNotification;
 
         public event EventHandler<SessionStatusChangedEvent>? StatusChanged;
-        public event EventHandler<MessageReceivedEvent>? MessageReceived;
-        public event EventHandler<MessageSentEvent>? MessageSent;
-        public event EventHandler<HeartbeatReceivedEvent>? HeartbeatReceived;
-        public event EventHandler<ErrorOccurredEvent>? ErrorOccurred;
+        public event EventHandler<MessageReceivedEvent>?      MessageReceived;
+        public event EventHandler<MessageSentEvent>?          MessageSent;
+        public event EventHandler<HeartbeatReceivedEvent>?    HeartbeatReceived;
+        public event EventHandler<ErrorOccurredEvent>?        ErrorOccurred;
 
         public QuickFixApplication(
             Dictionary<QF.SessionID, string> sessionKeyMap,
             Dictionary<string, (string Username, string Password)> sessionCredentials,
             IMessageInService? messageInService,
             IMessageInParserOrchestrator? orchestrator,
-            IEnumerable<string>? disabledSessionKeys = null,
-            ISecurityListService? securityListService = null,
-            IMarketDataOrchestrator? mdOrchestrator = null,
-            IMarketDataSubscriber? mdSubscriber = null,
-            IMarketDataService? marketDataService = null)       // ← NY
+            IEnumerable<string>? disabledSessionKeys      = null,
+            ISecurityListService? securityListService      = null,
+            IMarketDataOrchestrator? mdOrchestrator        = null,
+            IMarketDataSubscriber? mdSubscriber            = null,
+            IMarketDataService? marketDataService          = null,
+            IQuoteRequestService? quoteRequestService      = null,
+            ISessionHeartbeatNotifier? heartbeatNotifier   = null,
+            IPushNotificationService? pushNotification      = null)
         {
-            _sessionKeyMap = sessionKeyMap ?? throw new ArgumentNullException(nameof(sessionKeyMap));
+            _sessionKeyMap      = sessionKeyMap ?? throw new ArgumentNullException(nameof(sessionKeyMap));
             _sessionCredentials = sessionCredentials ?? new Dictionary<string, (string, string)>();
-            _disabledSessions = disabledSessionKeys != null
+            _disabledSessions   = disabledSessionKeys != null
                 ? new HashSet<string>(disabledSessionKeys, StringComparer.OrdinalIgnoreCase)
                 : new HashSet<string>();
-            _messageInService = messageInService;
-            _orchestrator = orchestrator;
+            _messageInService    = messageInService;
+            _orchestrator        = orchestrator;
             _securityListService = securityListService;
-            _mdOrchestrator = mdOrchestrator;
-            _mdSubscriber = mdSubscriber;
-            _marketDataService = marketDataService;             // ← NY
+            _mdOrchestrator      = mdOrchestrator;
+            _mdSubscriber        = mdSubscriber;
+            _marketDataService   = marketDataService;
+            _quoteRequestService = quoteRequestService;
+            _heartbeatNotifier   = heartbeatNotifier;
+            _pushNotification    = pushNotification;
         }
 
         /// <summary>
@@ -79,6 +97,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
 
+            // Reset pending reason when a session successfully logs on
+            PendingDisconnectReason = DisconnectReason.Unknown;
+
             if (_disabledSessions.Contains(sessionKey))
             {
                 QF.Session.LookupSession(sessionId)?.Logout("Session is disabled");
@@ -91,7 +112,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey, SessionStatus.Connecting, SessionStatus.LoggedOn));
 
-            // Starta market data-flödet för market data-sessioner (VOLB_FIXHUB_*)
+            _heartbeatNotifier?.SessionOnline(sessionKey);
+
             if (_mdOrchestrator != null)
                 _ = Task.Run(() => _mdOrchestrator.OnSessionLoggedOnAsync(sessionKey));
         }
@@ -104,17 +126,24 @@ namespace FxFixGateway.Infrastructure.QuickFix
             var sessionKey = GetSessionKey(sessionId);
             if (sessionKey == null) return;
 
-            // Log "Logout received" event
+            var reason = PendingDisconnectReason;
+
             MessageReceived?.Invoke(this, new MessageReceivedEvent(
                 sessionKey,
                 "LOGOUT",
-                "Logout received - session disconnected",
+                $"Logout received - session disconnected (reason: {reason})",
                 DateTime.UtcNow));
 
             StatusChanged?.Invoke(this, new SessionStatusChangedEvent(
                 sessionKey,
                 SessionStatus.LoggedOn,
                 SessionStatus.Stopped));
+
+            _heartbeatNotifier?.SessionOffline(sessionKey);
+
+            // Skicka endast notis för oväntade disconnects — UserExit hanteras i OnExit
+            if (_pushNotification != null && reason != DisconnectReason.UserExit)
+                _ = Task.Run(() => _pushNotification.SendDisconnectAsync(sessionKey, reason));
         }
 
         /// <summary>
@@ -302,9 +331,142 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         _ = Task.Run(() => _marketDataService.HandleMarketDataSnapshotAsync(sessionKey, dto));
                         break;
                     }
+
+                case "R":
+                    if (_quoteRequestService != null)
+                    {
+                        var dto = ParseQuoteRequestDto(message, rawMessage);
+                        _ = Task.Run(() => _quoteRequestService.HandleQuoteRequestAsync(sessionKey, dto));
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[FromApp] WARNING: 35=R received for {sessionKey} but _quoteRequestService is NULL — not saved!");
+                    }
+                    break;
             }
         }
 
+        // ── Privata hjälpmetoder ────────────────────────────────────────────────
+
+        /// <summary>
+        /// Extraherar data ur QuoteRequest (35=R).
+        ///
+        /// Struktur:
+        ///   Top-level  : 131
+        ///   146-grupp  : 48, 55, 460, 691, 876  (NoRelatedSym, delimiter 55)
+        ///     711-grupp: 310                     (NoUnderlyings — strategi-typ)
+        ///     555-grupp: 600, 764, 620, 611, 598, 612, 623, 622, 624, 556  (NoLegs)
+        /// </summary>
+        private QuoteRequestDto ParseQuoteRequestDto(QF.Message message, string rawMessage)
+        {
+            var quoteReqId = TryGetField(message, 131);
+
+            string? securityId = null;
+            string? symbol     = null;
+            int?    product    = null;
+            string? quoteStyle = null;
+            string? deltaStyle = null;
+            string? strategyType = null;
+            var legs = new List<QuoteRequestLegDto>();
+
+            try
+            {
+                var noRelatedSym = TryGetIntField(message, 146) ?? 0;
+                if (noRelatedSym > 0)
+                {
+                    var instrGroup = new QF.Group(146, 55);
+                    message.GetGroup(1, instrGroup);
+
+                    securityId = TryGetField(instrGroup, 48);
+                    symbol     = TryGetField(instrGroup, 55);
+                    product    = TryGetIntField(instrGroup, 460);
+                    quoteStyle = TryGetField(instrGroup, 691);
+                    deltaStyle = TryGetField(instrGroup, 876);
+
+                    // ── NoUnderlyings (711) — strategi-typ från tag 310 ──────
+                    try
+                    {
+                        var noUnderlyings = TryGetIntField(instrGroup, 711) ?? 0;
+                        if (noUnderlyings > 0)
+                        {
+                            var ulGroup = new QF.Group(711, 311);
+                            instrGroup.GetGroup(1, ulGroup);
+                            strategyType = ToStrategyDisplayName(TryGetField(ulGroup, 310));
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[ParseQuoteRequestDto] NoUnderlyings (711) parse failed: {ex.Message}");
+                    }
+
+                    // ── NoLegs (555) ─────────────────────────────────────────
+                    var noLegs = TryGetIntField(instrGroup, 555) ?? 0;
+                    for (int i = 1; i <= noLegs; i++)
+                    {
+                        try
+                        {
+                            var legGroup = new QF.Group(555, 600);
+                            instrGroup.GetGroup(i, legGroup);
+
+                            decimal? strikePrice = null;
+                            if (legGroup.IsSetField(612) &&
+                                decimal.TryParse(legGroup.GetString(612),
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var strike))
+                                strikePrice = strike;
+
+                            decimal? legOrderQty = null;
+                            if (legGroup.IsSetField(623) &&
+                                decimal.TryParse(legGroup.GetString(623),
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture, out var qty))
+                                legOrderQty = qty;
+
+                            legs.Add(new QuoteRequestLegDto
+                            {
+                                CurrencyPair     = TryGetField(legGroup, 600),
+                                PutOrCall        = TryGetField(legGroup, 764),
+                                Tenor            = TryGetField(legGroup, 620),
+                                ExpiryDate       = TryGetField(legGroup, 611),
+                                Cut              = TryGetField(legGroup, 598),
+                                NotionalCurrency = TryGetField(legGroup, 622),
+                                LegSide          = TryGetField(legGroup, 624),
+                                PremiumCurrency  = TryGetField(legGroup, 556),
+                                StrikePrice      = strikePrice,
+                                LegOrderQty      = legOrderQty,
+                                QuoteStyle       = quoteStyle,
+                                DeltaStyle       = deltaStyle
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[ParseQuoteRequestDto] leg {i} parse failed: {ex.Message}");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[ParseQuoteRequestDto] NoRelatedSym (146) parse failed: {ex.Message}");
+            }
+
+            return new QuoteRequestDto
+            {
+                QuoteReqId   = quoteReqId,
+                SecurityId   = securityId,
+                Symbol       = symbol,
+                Product      = product,
+                QuoteStyle   = quoteStyle,
+                DeltaStyle   = deltaStyle,
+                StrategyType = strategyType,
+                Legs         = legs,
+                RawPayload   = rawMessage
+            };
+        }
 
         private void HandleTradeCaptureReport(string sessionKey, QF.Message message, string rawMessage)
         {
@@ -369,30 +531,26 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
         }
 
-
         private string GetVenueCode(string sessionKey)
         {
             return sessionKey switch
             {
-                "VOLB_STP_DEV" => "VOLBROKER",
-                "VOLB_STP_PROD" => "VOLBROKER",
+                "VOLB_STP_DEV"     => "VOLBROKER",
+                "VOLB_STP_PROD"    => "VOLBROKER",
                 "FENICS_STP_STAGE2" => "FENICS",
                 _ => sessionKey // fallback to SessionKey
             };
         }
-
 
         private string ComputeSHA256Hash(string payload)
         {
             if (string.IsNullOrEmpty(payload))
                 return string.Empty;
 
-            using (var sha = SHA256.Create())
-            {
-                var bytes = Encoding.UTF8.GetBytes(payload);
-                var hashBytes = sha.ComputeHash(bytes);
-                return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
-            }
+            using var sha = SHA256.Create();
+            var bytes = Encoding.UTF8.GetBytes(payload);
+            var hashBytes = sha.ComputeHash(bytes);
+            return BitConverter.ToString(hashBytes).Replace("-", "").ToLowerInvariant();
         }
 
         private void EnrichVolbrokerAE(MessageIn entity, QF.Message message)
@@ -445,22 +603,30 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private string? TryGetField(QF.Message message, int tag)
         {
-            try
-            {
-                return message.IsSetField(tag) ? message.GetString(tag) : null;
-            }
-            catch
-            {
-                return null;
-            }
+            try { return message.IsSetField(tag) ? message.GetString(tag) : null; }
+            catch { return null; }
         }
 
+        private string? TryGetField(QF.Group group, int tag)
+        {
+            try { return group.IsSetField(tag) ? group.GetString(tag) : null; }
+            catch { return null; }
+        }
 
+        private int? TryGetIntField(QF.Message message, int tag)
+        {
+            try { return message.IsSetField(tag) ? message.GetInt(tag) : null; }
+            catch { return null; }
+        }
+
+        private int? TryGetIntField(QF.Group group, int tag)
+        {
+            try { return group.IsSetField(tag) ? group.GetInt(tag) : null; }
+            catch { return null; }
+        }
 
         private string? GetSessionKey(QF.SessionID sessionId)
-        {
-            return _sessionKeyMap.TryGetValue(sessionId, out var key) ? key : null;
-        }
+            => _sessionKeyMap.TryGetValue(sessionId, out var key) ? key : null;
 
         private string GetMessageType(QF.Message message)
         {
@@ -468,15 +634,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 var header = message.Header;
                 if (header.IsSetField(QF.Fields.Tags.MsgType))
-                {
                     return header.GetString(QF.Fields.Tags.MsgType);
-                }
             }
-            catch
-            {
-                // Ignore parsing errors
-            }
-
+            catch { }
             return "?";
         }
 
@@ -484,37 +644,20 @@ namespace FxFixGateway.Infrastructure.QuickFix
         {
             try
             {
-                // Tag 58 = Text (reason for reject)
                 if (message.IsSetField(58))
-                {
                     return message.GetString(58);
-                }
-                // Tag 373 = SessionRejectReason
                 if (message.IsSetField(373))
-                {
-                    var reasonCode = message.GetInt(373);
-                    return $"RejectReason={reasonCode}";
-                }
+                    return $"RejectReason={message.GetInt(373)}";
             }
-            catch
-            {
-                // Ignore parsing errors
-            }
-
+            catch { }
             return "Unknown reason";
         }
 
-        /// <summary>
-        /// Extraherar fält ur SecurityList (35=y) med hjälp av QF.Message + data dictionary.
-        /// Dictionary gör att repeating groups (555/600) parsas korrekt.
-        /// </summary>
         private SecurityInstrumentDto ParseSecurityInstrumentDto(QF.Message message)
         {
             string? currencyPair = null;
-
             try
             {
-                // Tag 555 = NoLegs. Dictionary gör att GetGroup fungerar här.
                 if (message.IsSetField(555))
                 {
                     var legGroup = new QF.Group(555, 600);
@@ -529,22 +672,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             return new SecurityInstrumentDto
             {
-                SecurityId = TryGetField(message, 48),
-                Symbol = TryGetField(message, 55),
-                Product = TryGetIntField(message, 460),
-                SecurityReqId = TryGetField(message, 320),
-                LastFragment = TryGetField(message, 893),
+                SecurityId            = TryGetField(message, 48),
+                Symbol                = TryGetField(message, 55),
+                Product               = TryGetIntField(message, 460),
+                SecurityReqId         = TryGetField(message, 320),
+                LastFragment          = TryGetField(message, 893),
                 SecurityRequestResult = TryGetIntField(message, 560),
-                CurrencyPair = currencyPair
+                CurrencyPair          = currencyPair
             };
         }
 
-        /// <summary>
-        /// Extraherar ALLA instrument ur ett SecurityList (35=y)-meddelande.
-        /// Tag 146 (NoRelatedSym) anger antal instrument i meddelandet.
-        /// Varje instrument ligger i en repeating group med delimiter tag 55.
-        /// Dictionary krävs för korrekt grupparsning.
-        /// </summary>
         private IReadOnlyList<SecurityInstrumentDto> ParseSecurityInstrumentDtos(QF.Message message)
         {
             var result = new List<SecurityInstrumentDto>();
@@ -626,16 +763,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         SecurityReqId         = securityReqId,
                         LastFragment          = lastFragment,
                         SecurityRequestResult = securityRequestResult,
-                        Tenor = tenor,
-                        ExpiryDate = expiryDate,
-                        Cut = cut,
-                        Strike = strike,
-                        PremiumCcy = premiumCcy,
-                        Strategy = strategy,
-                        Delta = delta,
-                        AmountCcy = amountCcy,
-                        QuoteStyle = TryGetField(instrGroup, 691),  // Benchmark → VOL/PCT
-                        DeltaStyle = TryGetField(instrGroup, 876),  // LegBenchmarkCurveName → FWD/SPOT
+                        Tenor                 = tenor,
+                        ExpiryDate            = expiryDate,
+                        Cut                   = cut,
+                        Strike                = strike,
+                        PremiumCcy            = premiumCcy,
+                        Strategy              = strategy,
+                        Delta                 = delta,
+                        AmountCcy             = amountCcy,
+                        QuoteStyle            = TryGetField(instrGroup, 691),  // Benchmark → VOL/PCT
+                        DeltaStyle            = TryGetField(instrGroup, 876),  // LegBenchmarkCurveName → FWD/SPOT
                     });
                 }
                 catch (Exception ex)
@@ -648,23 +785,17 @@ namespace FxFixGateway.Infrastructure.QuickFix
             return result;
         }
 
-        /// <summary>
-        /// Extraherar data ur MarketDataSnapshot (35=W) med dictionary-stöd.
-        /// Tag 268 (NoMDEntries) innehåller bid/offer/trade-entries.
-        /// </summary>
         private MarketDataSnapshotDto ParseMarketDataSnapshotDto(QF.Message message, string rawMessage)
         {
-            var securityId = TryGetField(message, 48);   // SecurityID
-            var mdReqId    = TryGetField(message, 262);  // MDReqID
-            var entries    = new List<MarketDataEntryDto>();
-
+            var securityId  = TryGetField(message, 48);
+            var mdReqId     = TryGetField(message, 262);
+            var entries     = new List<MarketDataEntryDto>();
             var noMdEntries = TryGetIntField(message, 268) ?? 0;
 
             for (int i = 1; i <= noMdEntries; i++)
             {
                 try
                 {
-                    // NoMDEntries (268) grupp — delimiter är tag 269 (MDEntryType)
                     var entryGroup = new QF.Group(268, 269);
                     message.GetGroup(i, entryGroup);
 
@@ -701,7 +832,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[ParseMarketDataSnapshotDto] failed entry group {i}: {ex.Message}");
+                        $"[ParseMarketDataSnapshotDto] failed to parse entry {i}: {ex.Message}");
                 }
             }
 
@@ -714,22 +845,19 @@ namespace FxFixGateway.Infrastructure.QuickFix
             };
         }
 
-        private static int? TryGetIntField(QF.Message message, int tag)
+        /// <summary>
+        /// Mappar FIX tag 310 (UnderlyingPutOrCall) till läsbart namn.
+        /// 1=Single Leg, 2=Straddle, 3=Strangle, 4=Risk Reversal, G=Butterfly, S=Generic Spread
+        /// </summary>
+        private static string? ToStrategyDisplayName(string? fixValue) => fixValue?.Trim() switch
         {
-            try { return message.IsSetField(tag) ? message.GetInt(tag) : null; }
-            catch { return null; }
-        }
-
-        private static int? TryGetIntField(QF.FieldMap fieldMap, int tag)
-        {
-            try { return fieldMap.IsSetField(tag) ? fieldMap.GetInt(tag) : null; }
-            catch { return null; }
-        }
-
-        private static string? TryGetField(QF.FieldMap fieldMap, int tag)
-        {
-            try { return fieldMap.IsSetField(tag) ? fieldMap.GetString(tag) : null; }
-            catch { return null; }
-        }
+            "1" => "Single Leg",
+            "2" => "Straddle",
+            "3" => "Strangle",
+            "4" => "Risk Reversal",
+            "G" => "Butterfly",
+            "S" => "Generic Spread",
+            _   => null
+        };
     }
 }
