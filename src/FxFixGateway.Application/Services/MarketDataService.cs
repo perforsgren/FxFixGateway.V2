@@ -113,21 +113,19 @@ namespace FxFixGateway.Application.Services
                 EntryCount   = dto.Entries.Count
             };
 
-            var trades = BuildTrades(snapshot, snapshotId: 0); // placeholder; real id from insert
-
             if (dto.Entries.Count == 0)
             {
                 _logger.LogInformation(
                     "[{Session}] 35=W 268=0 for SecurityId={SecId} — clearing active_market_book",
                     sessionKey, dto.SecurityId);
 
-                // Save empty snapshot for historical auditability, then clear book
                 await _snapshotRepo.InsertSnapshotAsync(snapshot, Array.Empty<MarketTrade>());
                 await _snapshotRepo.DeleteBookEntriesAsync(sessionKey, dto.SecurityId);
                 return;
             }
 
-            var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot, BuildTrades(snapshot, 0));
+            var trades    = BuildTrades(snapshot, snapshotId: 0);
+            var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot, trades);
 
             _logger.LogDebug(
                 "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Tenor={Tenor} Entries={Count} Trades={TradeCount}",
@@ -136,10 +134,6 @@ namespace FxFixGateway.Application.Services
             var bookEntries = BuildBookEntries(snapshot, snapshotId);
             if (bookEntries.Count > 0)
                 await _snapshotRepo.UpsertBookEntriesAsync(bookEntries);
-
-            trades = BuildTrades(snapshot, snapshotId);
-            if (trades.Count > 0)
-                await _snapshotRepo.InsertTradesAsync(trades);
         }
 
         private static List<ActiveMarketBookEntry> BuildBookEntries(MarketDataSnapshot snapshot, long snapshotId)
