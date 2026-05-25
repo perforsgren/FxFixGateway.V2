@@ -1,4 +1,4 @@
-using FxFixGateway.Domain.Entities;
+﻿using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Interfaces;
 using MySql.Data.MySqlClient;
 using System.Data;
@@ -7,8 +7,8 @@ namespace FxFixGateway.Infrastructure.Persistence
 {
     /// <summary>
     /// Persisterar MarketDataSnapshot (35=W) i fxvol.market_data_snapshots
-    /// och tillh�rande entries i fxvol.market_data_entries.
-    /// Upsertar �ven prisdjupet i fxvol.active_market_book.
+    /// och tillhörande entries i fxvol.market_data_entries.
+    /// Upsertar även prisdjupet i fxvol.active_market_book.
     /// </summary>
     public class MarketDataSnapshotRepository : IMarketDataSnapshotRepository
     {
@@ -51,7 +51,7 @@ namespace FxFixGateway.Infrastructure.Persistence
             }
         }
 
-        public async Task<long> InsertSnapshotAsync(MarketDataSnapshot snapshot)
+        public async Task<long> InsertSnapshotAsync(MarketDataSnapshot snapshot, IReadOnlyList<MarketTrade> trades)
         {
             await using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
@@ -109,8 +109,41 @@ namespace FxFixGateway.Infrastructure.Persistence
                         entryCmd.Parameters.AddWithValue("@EntryTime",      entry.EntryTime.HasValue
                             ? (object)entry.EntryTime.Value.ToString(@"hh\:mm\:ss\.fff")
                             : DBNull.Value);
-
                         await entryCmd.ExecuteNonQueryAsync();
+                    }
+                }
+
+                // ── Trades inside the same transaction ──────────────────────────────
+                if (trades.Count > 0)
+                {
+                    const string tradeSql = @"
+                        INSERT INTO fxvol.market_trades
+                            (security_id, session_key, currency_pair, tenor, cut, strategy, delta,
+                             price, size, trade_date, trade_time, trade_condition, snapshot_id, received_utc)
+                        VALUES
+                            (@SecurityId, @SessionKey, @CurrencyPair, @Tenor, @Cut, @Strategy, @Delta,
+                             @Price, @Size, @TradeDate, @TradeTime, @TradeCondition, @SnapshotId, @ReceivedUtc);";
+
+                    foreach (var trade in trades)
+                    {
+                        await using var tradeCmd = new MySqlCommand(tradeSql, connection, transaction);
+                        tradeCmd.Parameters.AddWithValue("@SecurityId",     trade.SecurityId);
+                        tradeCmd.Parameters.AddWithValue("@SessionKey",     trade.SessionKey);
+                        tradeCmd.Parameters.AddWithValue("@CurrencyPair",   (object?)trade.CurrencyPair   ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Tenor",          (object?)trade.Tenor          ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Cut",            (object?)trade.Cut            ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Strategy",       (object?)trade.Strategy       ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Delta",          (object?)trade.Delta          ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Price",          (object?)trade.Price          ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@Size",           (object?)trade.Size           ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@TradeDate",      trade.TradeDate.HasValue
+                            ? (object)trade.TradeDate.Value.ToString("yyyy-MM-dd") : DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@TradeTime",      trade.TradeTime.HasValue
+                            ? (object)trade.TradeTime.Value.ToString("HH:mm:ss.fff") : DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@TradeCondition", (object?)trade.TradeCondition ?? DBNull.Value);
+                        tradeCmd.Parameters.AddWithValue("@SnapshotId",     snapshotId);
+                        tradeCmd.Parameters.AddWithValue("@ReceivedUtc",    trade.ReceivedUtc);
+                        await tradeCmd.ExecuteNonQueryAsync();
                     }
                 }
 
@@ -138,8 +171,8 @@ namespace FxFixGateway.Infrastructure.Persistence
             try
             {
                 // Steg 1: Soft-delete ALLA befintliga rader per (session_key, security_id).
-                // Upserten i steg 2 �teraktiverar de som faktiskt finns i snapshoten.
-                // Detta hanterar fallet d�r ett pris f�rsvinner ur en snapshot som
+                // Upserten i steg 2 återaktiverar de som faktiskt finns i snapshoten.
+                // Detta hanterar fallet där ett pris försvinner ur en snapshot som
                 // fortfarande har andra entries (268 > 0 men priset saknas).
                 var groups = entries
                     .GroupBy(e => (e.SessionKey, e.SecurityId))
@@ -161,7 +194,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                     await deactivateCmd.ExecuteNonQueryAsync();
                 }
 
-                // Steg 2: Upsert aktiva entries � s�tter is_active=1 f�r de som finns i snapshoten.
+                // Steg 2: Upsert aktiva entries — sätter is_active=1 för de som finns i snapshoten.
                 const string upsertSql = @"
                     INSERT INTO fxvol.active_market_book
                         (security_id, session_key, currency_pair, md_entry_type, position_no,

@@ -28,14 +28,15 @@ namespace FxFixGateway.Application.Services
         public MarketDataService(
             IMarketDataSnapshotRepository snapshotRepo,
             IMarketInstrumentRepository   instrumentRepo,
-            ILogger<MarketDataService>    logger)
+            ILogger<MarketDataService>    logger,
+            int channelCapacity = 1000)
         {
             _snapshotRepo   = snapshotRepo   ?? throw new ArgumentNullException(nameof(snapshotRepo));
             _instrumentRepo = instrumentRepo ?? throw new ArgumentNullException(nameof(instrumentRepo));
             _logger         = logger         ?? throw new ArgumentNullException(nameof(logger));
 
             _channel = Channel.CreateBounded<(string, MarketDataSnapshotDto)>(
-                new BoundedChannelOptions(1000)
+                new BoundedChannelOptions(channelCapacity)
                 {
                     FullMode     = BoundedChannelFullMode.DropOldest,
                     SingleReader = true,
@@ -92,17 +93,6 @@ namespace FxFixGateway.Application.Services
 
         private async Task ProcessSnapshotAsync(string sessionKey, MarketDataSnapshotDto dto)
         {
-            if (dto.Entries.Count == 0)
-            {
-                _logger.LogInformation(
-                    "[{Session}] 35=W 268=0 for SecurityId={SecId} — clearing active_market_book",
-                    sessionKey, dto.SecurityId);
-
-                await _snapshotRepo.DeleteBookEntriesAsync(sessionKey, dto.SecurityId);
-                return;
-            }
-
-            // GetInstrumentMetaAsync returnerar nu även Tenor, Cut, Strategy, Delta
             var (currencyPair, product, tenor, cut, strategy, delta) =
                 await GetInstrumentMetaAsync(sessionKey, dto.SecurityId);
 
@@ -123,17 +113,31 @@ namespace FxFixGateway.Application.Services
                 EntryCount   = dto.Entries.Count
             };
 
-            var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot);
+            var trades = BuildTrades(snapshot, snapshotId: 0); // placeholder; real id from insert
+
+            if (dto.Entries.Count == 0)
+            {
+                _logger.LogInformation(
+                    "[{Session}] 35=W 268=0 for SecurityId={SecId} — clearing active_market_book",
+                    sessionKey, dto.SecurityId);
+
+                // Save empty snapshot for historical auditability, then clear book
+                await _snapshotRepo.InsertSnapshotAsync(snapshot, Array.Empty<MarketTrade>());
+                await _snapshotRepo.DeleteBookEntriesAsync(sessionKey, dto.SecurityId);
+                return;
+            }
+
+            var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot, BuildTrades(snapshot, 0));
 
             _logger.LogDebug(
-                "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Tenor={Tenor} Entries={Count}",
-                sessionKey, snapshotId, dto.SecurityId, currencyPair, tenor, snapshot.Entries.Count);
+                "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Tenor={Tenor} Entries={Count} Trades={TradeCount}",
+                sessionKey, snapshotId, dto.SecurityId, currencyPair, tenor, snapshot.Entries.Count, trades.Count);
 
             var bookEntries = BuildBookEntries(snapshot, snapshotId);
             if (bookEntries.Count > 0)
                 await _snapshotRepo.UpsertBookEntriesAsync(bookEntries);
 
-            var trades = BuildTrades(snapshot, snapshotId);
+            trades = BuildTrades(snapshot, snapshotId);
             if (trades.Count > 0)
                 await _snapshotRepo.InsertTradesAsync(trades);
         }
@@ -249,9 +253,9 @@ namespace FxFixGateway.Application.Services
 
         public async ValueTask DisposeAsync()
         {
-            _channel.Writer.Complete();
             await _cts.CancelAsync();
-            await _consumerTask.ConfigureAwait(false);
+            _channel.Writer.Complete();
+            try { await _consumerTask.ConfigureAwait(false); } catch { /* intentional */ }
             _cts.Dispose();
         }
     }

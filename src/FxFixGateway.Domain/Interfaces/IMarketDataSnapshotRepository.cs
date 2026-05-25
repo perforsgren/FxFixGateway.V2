@@ -17,7 +17,7 @@ namespace FxFixGateway.Domain.Interfaces
         /// <summary>
         /// Spara snapshot + entries i ett transaction-scope.
         /// </summary>
-        Task<long> InsertSnapshotAsync(MarketDataSnapshot snapshot);
+        Task<long> InsertSnapshotAsync(MarketDataSnapshot snapshot, IReadOnlyList<MarketTrade> trades);
 
         /// <summary>
         /// Upsertar prisdjupet för ett instrument baserat på en ny 35=W.
