@@ -2,8 +2,10 @@ namespace FxFixGateway.Domain.Entities
 {
     /// <summary>
     /// Representerar en aktiv position i prisdjupet för ett instrument.
-    /// Speglar alltid nuläget – upsertas vid varje 35=W.
+    /// Speglar alltid nuläget — upsertas vid varje 35=W.
     /// Sparas i fxvol.active_market_book.
+    /// IsActive=false innebär att priset togs bort (268=0) men behålls
+    /// för att prenumerant-appen ska kunna visa "last price seen".
     /// </summary>
     public class ActiveMarketBookEntry
     {
@@ -18,6 +20,7 @@ namespace FxFixGateway.Domain.Entities
         public string?  Originator     { get; set; }
         public string?  TraderId       { get; set; }
         public string?  QuoteCondition { get; set; }                   // A=aktiv, G=borta, I=indikativ
+        public bool     IsActive       { get; set; } = true;           // false = soft-deleted (268=0)
         public long     SnapshotId     { get; set; }
         public DateTime UpdatedUtc     { get; set; }
     }

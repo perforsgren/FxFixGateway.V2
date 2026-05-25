@@ -108,35 +108,44 @@ namespace FxFixGateway.UI
             return sb.ToString();
         }
 
-        protected override async void OnExit(ExitEventArgs e)
+        protected override void OnExit(ExitEventArgs e)
         {
             Log.Information("Application shutting down...");
 
-            if (_host != null)
+            Task.Run(async () =>
             {
-                // Sätt disconnect-anledning INNAN hosten stoppar (som triggar ShutdownAsync → OnLogout)
-                var fixApp = _host.Services.GetService<QuickFixApplication>();
-                if (fixApp != null)
-                    fixApp.PendingDisconnectReason = DisconnectReason.UserExit;
-
-                // Skicka push direkt — innan FIX-sessionen stängs
-                var push = _host.Services.GetService<IPushNotificationService>();
-                if (push != null)
+                try
                 {
-                    try
+                    if (_host != null)
                     {
-                        await push.SendDisconnectAsync("Gateway", DisconnectReason.UserExit)
-                                  .WaitAsync(TimeSpan.FromSeconds(4));
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning(ex, "Push notification failed during exit");
+                        var fixApp = _host.Services.GetService<QuickFixApplication>();
+                        if (fixApp != null)
+                            fixApp.PendingDisconnectReason = DisconnectReason.UserExit;
+
+                        var push = _host.Services.GetService<IPushNotificationService>();
+                        if (push != null)
+                        {
+                            try
+                            {
+                                await push.SendDisconnectAsync("Gateway", DisconnectReason.UserExit)
+                                          .WaitAsync(TimeSpan.FromSeconds(4))
+                                          .ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning(ex, "Push notification failed during exit");
+                            }
+                        }
+
+                        await _host.StopAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        _host.Dispose();
                     }
                 }
-
-                await _host.StopAsync(TimeSpan.FromSeconds(10));
-                _host.Dispose();
-            }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error during shutdown");
+                }
+            }).GetAwaiter().GetResult();  // ← blockerar Dispatcher-tråden tills allt är klart
 
             SerilogConfiguration.Close();
             base.OnExit(e);
@@ -144,7 +153,7 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            var connectionString = AppDbConfig.GetConnectionString("fix_config_dev");
+            var connectionString = AppDbConfig.GetConnectionString("fix_config_prod");
 
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
@@ -198,7 +207,7 @@ namespace FxFixGateway.UI
 
             // Market Data — repositories
             services.AddSingleton<IMarketSubscriptionRepository>(sp =>
-                new MarketSubscriptionRepository(connectionString));      // fix_config_dev
+                new MarketSubscriptionRepository(connectionString));      // fix_config_prod
 
             services.AddSingleton<IMarketInstrumentRepository>(sp =>
                 new MarketInstrumentRepository(fxvolConnectionString));  // fxvol
@@ -237,8 +246,8 @@ namespace FxFixGateway.UI
             {
                 var logger            = sp.GetRequiredService<ILogger<QuickFixEngine>>();
                 var dataDictPath      = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                var messageInSvc      = sp.GetRequiredService<FxTradeHub.Domain.Services.IMessageInService>();
-                var tradeOrch         = sp.GetRequiredService<FxTradeHub.Domain.Parsing.IMessageInParserOrchestrator>();
+                var messageInSvc      = sp.GetRequiredService<IMessageInService>();
+                var tradeOrch         = sp.GetRequiredService<IMessageInParserOrchestrator>();
                 var secListSvc        = sp.GetRequiredService<ISecurityListService>();
                 var mdOrchestrator    = sp.GetRequiredService<IMarketDataOrchestrator>();
                 var senderProxy       = sp.GetRequiredService<QuickFixSenderProxy>();

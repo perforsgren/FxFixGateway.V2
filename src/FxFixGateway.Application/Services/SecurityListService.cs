@@ -21,7 +21,6 @@ namespace FxFixGateway.Application.Services
         // TODO: Flytta till konfiguration/DB om fler sessioner tillkommer
         private static readonly HashSet<string> MarketDataSessions = new(StringComparer.OrdinalIgnoreCase)
         {
-            "VOLB_FIXHUB_DEV",
             "VOLB_FIXHUB_PROD"
         };
 

@@ -2,7 +2,7 @@ namespace FxFixGateway.Domain.ValueObjects
 {
     /// <summary>
     /// Representerar ett prenumerationsfilter: ett valutapar + en produkttyp per session.
-    /// Läses från fix_config_dev.market_subscriptions.
+    /// Läses från fix_config_prod.market_subscriptions.
     /// </summary>
     public sealed class MarketSubscriptionFilter
     {

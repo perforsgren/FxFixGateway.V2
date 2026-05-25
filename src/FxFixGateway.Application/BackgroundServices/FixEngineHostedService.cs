@@ -7,10 +7,6 @@ using System.Threading.Tasks;
 
 namespace FxFixGateway.Application.BackgroundServices
 {
-    /// <summary>
-    /// Owns the lifecycle of the FIX engine. Hosted service guarantees StopAsync
-    /// runs before the process exits, with proper cancellation.
-    /// </summary>
     public sealed class FixEngineHostedService : IHostedService
     {
         private readonly IFixEngine _fixEngine;
@@ -32,10 +28,11 @@ namespace FxFixGateway.Application.BackgroundServices
             try
             {
                 await _fixEngine.ShutdownAsync().WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+                _logger.LogInformation("FixEngineHostedService: FIX engine stopped.");
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "FIX engine shutdown did not complete cleanly");
+                _logger.LogWarning(ex, "FIX engine did not stop cleanly");
             }
         }
     }

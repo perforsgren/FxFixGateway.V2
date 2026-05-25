@@ -131,43 +131,137 @@ namespace FxFixGateway.Infrastructure.Persistence
             if (entries.Count == 0)
                 return;
 
-            // Upsert per entry: ON DUPLICATE KEY uppdaterar befintlig position
+            await using var connection = new MySqlConnection(_connectionString);
+            await connection.OpenAsync();
+            await using var transaction = await connection.BeginTransactionAsync();
+
+            try
+            {
+                // Steg 1: Soft-delete ALLA befintliga rader per (session_key, security_id).
+                // Upserten i steg 2 återaktiverar de som faktiskt finns i snapshoten.
+                // Detta hanterar fallet där ett pris försvinner ur en snapshot som
+                // fortfarande har andra entries (268 > 0 men priset saknas).
+                var groups = entries
+                    .GroupBy(e => (e.SessionKey, e.SecurityId))
+                    .ToList();
+
+                const string deactivateSql = @"
+                    UPDATE fxvol.active_market_book
+                    SET    is_active   = 0,
+                           updated_utc = @UpdatedUtc
+                    WHERE  session_key = @SessionKey
+                      AND  security_id = @SecurityId;";
+
+                foreach (var group in groups)
+                {
+                    await using var deactivateCmd = new MySqlCommand(deactivateSql, connection, transaction);
+                    deactivateCmd.Parameters.AddWithValue("@SessionKey",  group.Key.SessionKey);
+                    deactivateCmd.Parameters.AddWithValue("@SecurityId",  group.Key.SecurityId);
+                    deactivateCmd.Parameters.AddWithValue("@UpdatedUtc",  DateTime.UtcNow);
+                    await deactivateCmd.ExecuteNonQueryAsync();
+                }
+
+                // Steg 2: Upsert aktiva entries — sätter is_active=1 för de som finns i snapshoten.
+                const string upsertSql = @"
+                    INSERT INTO fxvol.active_market_book
+                        (security_id, session_key, currency_pair, md_entry_type, position_no,
+                         price, size, originator, trader_id, quote_condition, is_active, snapshot_id, updated_utc)
+                    VALUES
+                        (@SecurityId, @SessionKey, @CurrencyPair, @MdEntryType, @PositionNo,
+                         @Price, @Size, @Originator, @TraderId, @QuoteCondition, 1, @SnapshotId, @UpdatedUtc)
+                    ON DUPLICATE KEY UPDATE
+                        price           = VALUES(price),
+                        size            = VALUES(size),
+                        originator      = VALUES(originator),
+                        trader_id       = VALUES(trader_id),
+                        quote_condition = VALUES(quote_condition),
+                        currency_pair   = VALUES(currency_pair),
+                        is_active       = 1,
+                        snapshot_id     = VALUES(snapshot_id),
+                        updated_utc     = VALUES(updated_utc);";
+
+                foreach (var entry in entries)
+                {
+                    await using var upsertCmd = new MySqlCommand(upsertSql, connection, transaction);
+                    upsertCmd.Parameters.AddWithValue("@SecurityId",     entry.SecurityId);
+                    upsertCmd.Parameters.AddWithValue("@SessionKey",     entry.SessionKey);
+                    upsertCmd.Parameters.AddWithValue("@CurrencyPair",   (object?)entry.CurrencyPair   ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@MdEntryType",    entry.MdEntryType);
+                    upsertCmd.Parameters.AddWithValue("@PositionNo",     entry.PositionNo);
+                    upsertCmd.Parameters.AddWithValue("@Price",          (object?)entry.Price          ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@Size",           (object?)entry.Size           ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@Originator",     (object?)entry.Originator     ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@TraderId",       (object?)entry.TraderId       ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@QuoteCondition", (object?)entry.QuoteCondition?.Truncate(50) ?? DBNull.Value);
+                    upsertCmd.Parameters.AddWithValue("@SnapshotId",     entry.SnapshotId);
+                    upsertCmd.Parameters.AddWithValue("@UpdatedUtc",     entry.UpdatedUtc);
+                    await upsertCmd.ExecuteNonQueryAsync();
+                }
+
+                await transaction.CommitAsync();
+            }
+            catch
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        }
+
+        public async Task DeleteBookEntriesAsync(string sessionKey, string securityId)
+        {
             const string sql = @"
-                INSERT INTO fxvol.active_market_book
-                    (security_id, session_key, currency_pair, md_entry_type, position_no,
-                     price, size, originator, trader_id, quote_condition, snapshot_id, updated_utc)
-                VALUES
-                    (@SecurityId, @SessionKey, @CurrencyPair, @MdEntryType, @PositionNo,
-                     @Price, @Size, @Originator, @TraderId, @QuoteCondition, @SnapshotId, @UpdatedUtc)
-                ON DUPLICATE KEY UPDATE
-                    price           = VALUES(price),
-                    size            = VALUES(size),
-                    originator      = VALUES(originator),
-                    trader_id       = VALUES(trader_id),
-                    quote_condition = VALUES(quote_condition),
-                    currency_pair   = VALUES(currency_pair),
-                    snapshot_id     = VALUES(snapshot_id),
-                    updated_utc     = VALUES(updated_utc);";
+                UPDATE fxvol.active_market_book
+                SET    is_active   = 0,
+                       updated_utc = @UpdatedUtc
+                WHERE  session_key = @SessionKey
+                  AND  security_id = @SecurityId;";
 
             await using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            foreach (var entry in entries)
+            await using var cmd = new MySqlCommand(sql, connection);
+            cmd.Parameters.AddWithValue("@SessionKey",  sessionKey);
+            cmd.Parameters.AddWithValue("@SecurityId",  securityId);
+            cmd.Parameters.AddWithValue("@UpdatedUtc",  DateTime.UtcNow);
+
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        public async Task InsertTradesAsync(IReadOnlyList<MarketTrade> trades)
+        {
+            if (trades.Count == 0)
+                return;
+
+            const string sql = @"
+                INSERT INTO fxvol.market_trades
+                    (security_id, session_key, currency_pair, tenor, cut, strategy, delta,
+                     price, size, trade_date, trade_time, trade_condition, snapshot_id, received_utc)
+                VALUES
+                    (@SecurityId, @SessionKey, @CurrencyPair, @Tenor, @Cut, @Strategy, @Delta,
+                     @Price, @Size, @TradeDate, @TradeTime, @TradeCondition, @SnapshotId, @ReceivedUtc);";
+
+            await using var connection = new MySqlConnection(_connectionString);
+            await connection.OpenAsync();
+
+            foreach (var trade in trades)
             {
                 await using var cmd = new MySqlCommand(sql, connection);
-                cmd.Parameters.AddWithValue("@SecurityId",     entry.SecurityId);
-                cmd.Parameters.AddWithValue("@SessionKey",     entry.SessionKey);
-                cmd.Parameters.AddWithValue("@CurrencyPair",   (object?)entry.CurrencyPair   ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@MdEntryType",    entry.MdEntryType);
-                cmd.Parameters.AddWithValue("@PositionNo",     entry.PositionNo);
-                cmd.Parameters.AddWithValue("@Price",          (object?)entry.Price          ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@Size",           (object?)entry.Size           ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@Originator",     (object?)entry.Originator     ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@TraderId",       (object?)entry.TraderId       ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@QuoteCondition", (object?)entry.QuoteCondition?.Truncate(50) ?? DBNull.Value);
-                cmd.Parameters.AddWithValue("@SnapshotId",     entry.SnapshotId);
-                cmd.Parameters.AddWithValue("@UpdatedUtc",     entry.UpdatedUtc);
-
+                cmd.Parameters.AddWithValue("@SecurityId",     trade.SecurityId);
+                cmd.Parameters.AddWithValue("@SessionKey",     trade.SessionKey);
+                cmd.Parameters.AddWithValue("@CurrencyPair",   (object?)trade.CurrencyPair   ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Tenor",          (object?)trade.Tenor          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Cut",            (object?)trade.Cut            ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Strategy",       (object?)trade.Strategy       ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Delta",          (object?)trade.Delta          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Price",          (object?)trade.Price          ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@Size",           (object?)trade.Size           ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@TradeDate",      trade.TradeDate.HasValue
+                    ? (object)trade.TradeDate.Value.ToString("yyyy-MM-dd") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@TradeTime",      trade.TradeTime.HasValue
+                    ? (object)trade.TradeTime.Value.ToString("HH:mm:ss.fff") : DBNull.Value);
+                cmd.Parameters.AddWithValue("@TradeCondition", (object?)trade.TradeCondition ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("@SnapshotId",     trade.SnapshotId);
+                cmd.Parameters.AddWithValue("@ReceivedUtc",    trade.ReceivedUtc);
                 await cmd.ExecuteNonQueryAsync();
             }
         }

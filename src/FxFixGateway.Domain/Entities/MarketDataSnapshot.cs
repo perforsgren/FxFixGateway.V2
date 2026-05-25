@@ -12,6 +12,10 @@ namespace FxFixGateway.Domain.Entities
         public string? MdReqId { get; set; }                      // tag 262
         public string? CurrencyPair { get; set; }                 // denormaliserat från market_instruments
         public int? Product { get; set; }                         // denormaliserat från market_instruments
+        public string? Tenor { get; set; }                        // från market_instruments (tag 620)
+        public string? Cut { get; set; }                          // från market_instruments (tag 598)
+        public string? Strategy { get; set; }                     // från market_instruments (tag 310)
+        public string? Delta { get; set; }                        // från market_instruments (tag 763)
         public string RawPayload { get; set; } = string.Empty;
         public DateTime ReceivedUtc { get; set; }
 

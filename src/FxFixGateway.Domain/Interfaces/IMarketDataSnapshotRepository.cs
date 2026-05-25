@@ -22,8 +22,17 @@ namespace FxFixGateway.Domain.Interfaces
         /// <summary>
         /// Upsertar prisdjupet för ett instrument baserat på en ny 35=W.
         /// Varje position identifieras unikt av (security_id, session_key, md_entry_type, position_no).
-        /// QuoteCondition=G eller saknat price innebär att positionen är inaktiv.
         /// </summary>
         Task UpsertBookEntriesAsync(IReadOnlyList<ActiveMarketBookEntry> entries);
+
+        /// <summary>
+        /// Tar bort alla book-entries för ett instrument (268=0 — tom market).
+        /// </summary>
+        Task DeleteBookEntriesAsync(string sessionKey, string securityId);
+
+        /// <summary>
+        /// Sparar trade prints (MdEntryType=2) från 35=W i market_trades.
+        /// </summary>
+        Task InsertTradesAsync(IReadOnlyList<MarketTrade> trades);
     }
 }

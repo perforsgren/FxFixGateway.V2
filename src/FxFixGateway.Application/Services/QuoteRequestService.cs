@@ -14,7 +14,6 @@ namespace FxFixGateway.Application.Services
 
         private static readonly HashSet<string> MarketDataSessions = new(StringComparer.OrdinalIgnoreCase)
         {
-            "VOLB_FIXHUB_DEV",
             "VOLB_FIXHUB_PROD"
         };
 

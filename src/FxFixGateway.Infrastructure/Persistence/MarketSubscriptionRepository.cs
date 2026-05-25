@@ -6,7 +6,7 @@ using System.Data;
 namespace FxFixGateway.Infrastructure.Persistence
 {
     /// <summary>
-    /// Läser prenumerationskonfiguration från fix_config_dev.market_subscriptions.
+    /// Läser prenumerationskonfiguration från fix_config_prod.market_subscriptions.
     /// </summary>
     public class MarketSubscriptionRepository : IMarketSubscriptionRepository
     {
@@ -26,7 +26,7 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             const string sql = @"
                 SELECT session_key, currency_pair, product
-                FROM fix_config_dev.market_subscriptions
+                FROM fix_config_prod.market_subscriptions
                 WHERE session_key = @SessionKey
                   AND is_enabled  = TRUE
                 ORDER BY currency_pair, product;";

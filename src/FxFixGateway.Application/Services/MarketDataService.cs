@@ -1,36 +1,27 @@
-﻿using FxFixGateway.Domain.Entities;
+﻿using System.Threading.Channels;
+using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
 
 namespace FxFixGateway.Application.Services
 {
-    /// <summary>
-    /// Hanterar inkommande MarketDataSnapshot (35=W) från Volbroker/TFSICAP.
-    ///
-    /// Flöde:
-    ///   1. Ta emot MarketDataSnapshotDto (parsad i Infrastructure med dictionary)
-    ///   2. Filtrera: kontrollera att SecurityID är prenumererat (is_subscribed=true)
-    ///   3. Berika med CurrencyPair/Product från market_instruments
-    ///   4. Persistera snapshot + entries i fxvol
-    ///   5. Upserta prisdjupet i active_market_book
-    ///
-    /// TODO: Vid hög volym — flytta DB-skrivning till en bakgrundskö (Channel<T>)
-    ///       för att undvika att blockera FIX-tråden.
-    /// </summary>
-    public class MarketDataService : IMarketDataService
+    public class MarketDataService : IMarketDataService, IAsyncDisposable
     {
-        private readonly IMarketDataSnapshotRepository _snapshotRepo;
-        private readonly IMarketInstrumentRepository   _instrumentRepo;
-        private readonly ILogger<MarketDataService>    _logger;
+        private readonly IMarketDataSnapshotRepository              _snapshotRepo;
+        private readonly IMarketInstrumentRepository                _instrumentRepo;
+        private readonly ILogger<MarketDataService>                 _logger;
 
-        private readonly Dictionary<string, HashSet<string>>                                     _subscribedCache  = new();
-        private readonly Dictionary<string, Dictionary<string, (string? CurrencyPair, int? Product)>> _instrumentCache = new();
+        private readonly Channel<(string SessionKey, MarketDataSnapshotDto Dto)> _channel;
+        private readonly Task                                                     _consumerTask;
+        private readonly CancellationTokenSource                                  _cts = new();
+
+        // Cache: sessionKey → securityId → (CurrencyPair, Product, Tenor, Cut, Strategy, Delta)
+        private readonly Dictionary<string, Dictionary<string, (string? CurrencyPair, int? Product, string? Tenor, string? Cut, string? Strategy, string? Delta)>> _instrumentCache = new();
         private readonly object _cacheLock = new();
 
         private static readonly HashSet<string> MarketDataSessions = new(StringComparer.OrdinalIgnoreCase)
         {
-            "VOLB_FIXHUB_DEV",
             "VOLB_FIXHUB_PROD"
         };
 
@@ -42,6 +33,16 @@ namespace FxFixGateway.Application.Services
             _snapshotRepo   = snapshotRepo   ?? throw new ArgumentNullException(nameof(snapshotRepo));
             _instrumentRepo = instrumentRepo ?? throw new ArgumentNullException(nameof(instrumentRepo));
             _logger         = logger         ?? throw new ArgumentNullException(nameof(logger));
+
+            _channel = Channel.CreateBounded<(string, MarketDataSnapshotDto)>(
+                new BoundedChannelOptions(1000)
+                {
+                    FullMode     = BoundedChannelFullMode.DropOldest,
+                    SingleReader = true,
+                    SingleWriter = false
+                });
+
+            _consumerTask = Task.Run(() => ConsumeAsync(_cts.Token));
         }
 
         public async Task HandleMarketDataSnapshotAsync(string sessionKey, MarketDataSnapshotDto dto)
@@ -64,7 +65,46 @@ namespace FxFixGateway.Application.Services
                 return;
             }
 
-            var (currencyPair, product) = await GetInstrumentMetaAsync(sessionKey, dto.SecurityId);
+            if (!_channel.Writer.TryWrite((sessionKey, dto)))
+            {
+                _logger.LogWarning(
+                    "[{Session}] Market data channel full — dropping snapshot for SecurityId={SecId}",
+                    sessionKey, dto.SecurityId);
+            }
+        }
+
+        private async Task ConsumeAsync(CancellationToken ct)
+        {
+            await foreach (var (sessionKey, dto) in _channel.Reader.ReadAllAsync(ct))
+            {
+                try
+                {
+                    await ProcessSnapshotAsync(sessionKey, dto);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex,
+                        "[{Session}] Consumer failed for SecurityId={SecId}",
+                        sessionKey, dto.SecurityId);
+                }
+            }
+        }
+
+        private async Task ProcessSnapshotAsync(string sessionKey, MarketDataSnapshotDto dto)
+        {
+            if (dto.Entries.Count == 0)
+            {
+                _logger.LogInformation(
+                    "[{Session}] 35=W 268=0 for SecurityId={SecId} — clearing active_market_book",
+                    sessionKey, dto.SecurityId);
+
+                await _snapshotRepo.DeleteBookEntriesAsync(sessionKey, dto.SecurityId);
+                return;
+            }
+
+            // GetInstrumentMetaAsync returnerar nu även Tenor, Cut, Strategy, Delta
+            var (currencyPair, product, tenor, cut, strategy, delta) =
+                await GetInstrumentMetaAsync(sessionKey, dto.SecurityId);
 
             var snapshot = new MarketDataSnapshot
             {
@@ -73,43 +113,31 @@ namespace FxFixGateway.Application.Services
                 MdReqId      = dto.MdReqId,
                 CurrencyPair = currencyPair,
                 Product      = product,
+                Tenor        = tenor,
+                Cut          = cut,
+                Strategy     = strategy,
+                Delta        = delta,
                 RawPayload   = dto.RawPayload,
                 ReceivedUtc  = DateTime.UtcNow,
                 Entries      = dto.Entries.Select(e => MapEntry(e, dto.SecurityId)).ToList(),
                 EntryCount   = dto.Entries.Count
             };
 
-            try
-            {
-                var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot);
+            var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot);
 
-                _logger.LogDebug(
-                    "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Entries={Count}",
-                    sessionKey, snapshotId, dto.SecurityId, currencyPair, snapshot.Entries.Count);
+            _logger.LogDebug(
+                "[{Session}] 35=W saved: SnapshotId={Id} SecurityId={SecId} Pair={Pair} Tenor={Tenor} Entries={Count}",
+                sessionKey, snapshotId, dto.SecurityId, currencyPair, tenor, snapshot.Entries.Count);
 
-                // Upserta prisdjupet – bara entries med PositionNo (Bid/Ask i orderboken)
-                var bookEntries = BuildBookEntries(snapshot, snapshotId);
-                if (bookEntries.Count > 0)
-                {
-                    await _snapshotRepo.UpsertBookEntriesAsync(bookEntries);
+            var bookEntries = BuildBookEntries(snapshot, snapshotId);
+            if (bookEntries.Count > 0)
+                await _snapshotRepo.UpsertBookEntriesAsync(bookEntries);
 
-                    _logger.LogDebug(
-                        "[{Session}] active_market_book updated: SecurityId={SecId} Positions={Count}",
-                        sessionKey, dto.SecurityId, bookEntries.Count);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex,
-                    "[{Session}] Failed to save 35=W snapshot for SecurityId={SecId}",
-                    sessionKey, dto.SecurityId);
-            }
+            var trades = BuildTrades(snapshot, snapshotId);
+            if (trades.Count > 0)
+                await _snapshotRepo.InsertTradesAsync(trades);
         }
 
-        /// <summary>
-        /// Bygger ActiveMarketBookEntry-lista från snapshot-entries som har PositionNo.
-        /// Trades (MdEntryType=2) ingår inte i prisdjupet.
-        /// </summary>
         private static List<ActiveMarketBookEntry> BuildBookEntries(MarketDataSnapshot snapshot, long snapshotId)
         {
             var now = DateTime.UtcNow;
@@ -134,7 +162,35 @@ namespace FxFixGateway.Application.Services
                 .ToList();
         }
 
-        private async Task<(string? CurrencyPair, int? Product)> GetInstrumentMetaAsync(
+        private static List<MarketTrade> BuildTrades(MarketDataSnapshot snapshot, long snapshotId)
+        {
+            var now = DateTime.UtcNow;
+
+            return snapshot.Entries
+                .Where(e => e.MdEntryType == "2")
+                .Select(e => new MarketTrade
+                {
+                    SecurityId     = snapshot.SecurityId,
+                    SessionKey     = snapshot.SessionKey,
+                    CurrencyPair   = snapshot.CurrencyPair,
+                    Tenor          = snapshot.Tenor,      // ← hämtas nu från snapshot
+                    Cut            = snapshot.Cut,        // ← hämtas nu från snapshot
+                    Strategy       = snapshot.Strategy,   // ← hämtas nu från snapshot
+                    Delta          = snapshot.Delta,      // ← hämtas nu från snapshot
+                    Price          = e.Price,
+                    Size           = e.Size,
+                    TradeDate      = e.EntryDate.HasValue
+                        ? DateOnly.FromDateTime(e.EntryDate.Value) : null,
+                    TradeTime      = e.EntryTime.HasValue
+                        ? TimeOnly.FromTimeSpan(e.EntryTime.Value) : null,
+                    TradeCondition = e.TradeCondition,
+                    SnapshotId     = snapshotId,
+                    ReceivedUtc    = now
+                })
+                .ToList();
+        }
+
+        private async Task<(string? CurrencyPair, int? Product, string? Tenor, string? Cut, string? Strategy, string? Delta)> GetInstrumentMetaAsync(
             string sessionKey, string securityId)
         {
             lock (_cacheLock)
@@ -145,12 +201,14 @@ namespace FxFixGateway.Application.Services
             }
 
             var instrument = await _instrumentRepo.GetBySecurityIdAsync(sessionKey, securityId);
-            var meta = (instrument?.CurrencyPair, instrument?.Product);
+            var meta       = (instrument?.CurrencyPair, instrument?.Product,
+                              instrument?.Tenor, instrument?.Cut,
+                              instrument?.Strategy, instrument?.Delta);
 
             lock (_cacheLock)
             {
                 if (!_instrumentCache.ContainsKey(sessionKey))
-                    _instrumentCache[sessionKey] = new Dictionary<string, (string?, int?)>();
+                    _instrumentCache[sessionKey] = new();
 
                 _instrumentCache[sessionKey][securityId] = meta;
             }
@@ -187,6 +245,14 @@ namespace FxFixGateway.Application.Services
                 EntryDate      = entryDate,
                 EntryTime      = entryTime
             };
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            _channel.Writer.Complete();
+            await _cts.CancelAsync();
+            await _consumerTask.ConfigureAwait(false);
+            _cts.Dispose();
         }
     }
 }

@@ -413,80 +413,57 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (_running && _initiator != null)
             {
                 _logger?.LogInformation("Stopping SocketInitiator...");
+
+                // Stop() är synkron och blockerar tills QuickFIX skickat Logout till motparter
                 _initiator.Stop();
-                
-                // QuickFIX/n's Stop() är synkron men sockets stängs asynkront
-                var deadline = DateTime.UtcNow.AddSeconds(3);
+                _running = false;
+
+                // Vänta på att socket-trådar faktiskt avslutas (foreground threads)
+                var deadline = DateTime.UtcNow.AddSeconds(4);
                 while (!_initiator.IsStopped && DateTime.UtcNow < deadline)
-                    await Task.Delay(50);
+                    await Task.Delay(100).ConfigureAwait(false);
 
                 if (!_initiator.IsStopped)
-                    _logger?.LogWarning("SocketInitiator did not stop cleanly within 3s");
+                    _logger?.LogWarning("SocketInitiator did not fully stop — forcing dispose");
 
-                _running = false;
+                // Dispose frigör socket-handles och avslutar interna trådar
+                _initiator.Dispose();
+                _initiator = null;
             }
 
-            // Wait for any push notification triggered by OnLogout to complete
-            if (_application != null)
-            {
-                _logger?.LogInformation("Waiting for pending push notification...");
-                try
-                {
-                    await _application.WaitForPendingNotificationAsync().ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogWarning(ex, "Push notification failed during shutdown");
-                }
-            }
-
-            // STÄNG SSL TUNNELS
+            // Stäng SSL-tunnlar
             _logger?.LogInformation("Stopping {Count} SSL tunnels...", _sslTunnels.Count);
             foreach (var tunnel in _sslTunnels.Values)
-            {
                 tunnel.Dispose();
-            }
             _sslTunnels.Clear();
 
             _logger?.LogInformation("=== QuickFIX Engine Shutdown Complete ===");
         }
 
-
         public void Dispose()
         {
             if (_running && _initiator != null)
             {
-                try
-                {
-                    _initiator.Stop();
-                }
-                catch (Exception ex)
-                {
-                    _logger?.LogError(ex, "Error stopping initiator during dispose");
-                }
+                try { _initiator.Stop(); } catch { /* ignore */ }
             }
 
-            // Unsubscribe from events to prevent memory leaks
             if (_application != null)
             {
-                _application.StatusChanged -= OnStatusChanged;
+                _application.StatusChanged   -= OnStatusChanged;
                 _application.MessageReceived -= OnMessageReceived;
-                _application.MessageSent -= OnMessageSent;
+                _application.MessageSent     -= OnMessageSent;
                 _application.HeartbeatReceived -= OnHeartbeatReceived;
-                _application.ErrorOccurred -= OnErrorOccurred;
+                _application.ErrorOccurred   -= OnErrorOccurred;
             }
 
             _initiator?.Dispose();
             _initiator = null;
 
-            // DISPOSE SSL TUNNELS
             foreach (var tunnel in _sslTunnels.Values)
-            {
                 tunnel.Dispose();
-            }
             _sslTunnels.Clear();
 
-            _running = false;
+            _running     = false;
             _initialized = false;
         }
 
