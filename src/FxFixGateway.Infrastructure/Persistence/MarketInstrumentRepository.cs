@@ -169,7 +169,9 @@ namespace FxFixGateway.Infrastructure.Persistence
         {
             const string sql = @"
                 SELECT id, session_key, security_id, symbol, currency_pair,
-                       product, security_req_id, is_subscribed, discovered_utc, updated_utc
+                       product, security_req_id, is_subscribed, discovered_utc, updated_utc,
+                       tenor, expiry_date, cut, strategy, delta, strike,
+                       quote_style, delta_style, premium_ccy, amount_ccy
                 FROM fxvol.market_instruments
                 WHERE session_key = @SessionKey
                   AND security_id = @SecurityId
@@ -245,6 +247,16 @@ namespace FxFixGateway.Infrastructure.Persistence
             IsSubscribed  = reader.GetBoolean("is_subscribed"),
             DiscoveredUtc = reader.GetDateTime("discovered_utc"),
             UpdatedUtc    = reader.GetDateTime("updated_utc"),
+            Tenor         = reader.IsDBNull(reader.GetOrdinal("tenor"))           ? null : reader.GetString("tenor"),
+            ExpiryDate    = reader.IsDBNull(reader.GetOrdinal("expiry_date"))     ? null : reader.GetDateTime("expiry_date"),
+            Cut           = reader.IsDBNull(reader.GetOrdinal("cut"))             ? null : reader.GetString("cut"),
+            Strategy      = reader.IsDBNull(reader.GetOrdinal("strategy"))        ? null : reader.GetString("strategy"),
+            Delta         = reader.IsDBNull(reader.GetOrdinal("delta"))           ? null : reader.GetString("delta"),
+            Strike        = reader.IsDBNull(reader.GetOrdinal("strike"))          ? null : reader.GetString("strike"),
+            QuoteStyle    = reader.IsDBNull(reader.GetOrdinal("quote_style"))     ? null : reader.GetString("quote_style"),
+            DeltaStyle    = reader.IsDBNull(reader.GetOrdinal("delta_style"))     ? null : reader.GetString("delta_style"),
+            PremiumCcy    = reader.IsDBNull(reader.GetOrdinal("premium_ccy"))     ? null : reader.GetString("premium_ccy"),
+            AmountCcy     = reader.IsDBNull(reader.GetOrdinal("amount_ccy"))      ? null : reader.GetString("amount_ccy"),
         };
     }
 }
