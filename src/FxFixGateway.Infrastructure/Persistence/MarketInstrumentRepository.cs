@@ -95,7 +95,9 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             const string sql = @"
                 SELECT id, session_key, security_id, symbol, currency_pair,
-                       product, security_req_id, is_subscribed, discovered_utc, updated_utc
+                       product, security_req_id, is_subscribed, discovered_utc, updated_utc,
+                       tenor, expiry_date, cut, strategy, delta, strike,
+                       quote_style, delta_style, premium_ccy, amount_ccy
                 FROM fxvol.market_instruments
                 WHERE session_key   = @SessionKey
                   AND currency_pair = @CurrencyPair

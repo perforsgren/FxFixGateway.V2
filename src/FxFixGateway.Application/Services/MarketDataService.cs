@@ -171,10 +171,10 @@ namespace FxFixGateway.Application.Services
                     SecurityId     = snapshot.SecurityId,
                     SessionKey     = snapshot.SessionKey,
                     CurrencyPair   = snapshot.CurrencyPair,
-                    Tenor          = snapshot.Tenor,      // ← hämtas nu från snapshot
-                    Cut            = snapshot.Cut,        // ← hämtas nu från snapshot
-                    Strategy       = snapshot.Strategy,   // ← hämtas nu från snapshot
-                    Delta          = snapshot.Delta,      // ← hämtas nu från snapshot
+                    Tenor          = snapshot.Tenor,
+                    Cut            = snapshot.Cut,
+                    Strategy       = ToStrategyDisplayName(snapshot.Strategy),  // normalisera här
+                    Delta          = ToDeltaDisplayName(snapshot.Delta),        // normalisera här
                     Price          = e.Price,
                     Size           = e.Size,
                     TradeDate      = e.EntryDate.HasValue
@@ -186,6 +186,26 @@ namespace FxFixGateway.Application.Services
                     ReceivedUtc    = now
                 })
                 .ToList();
+        }
+
+        private static string? ToStrategyDisplayName(string? fixValue) => fixValue?.Trim() switch
+        {
+            "1" => "Single Leg",
+            "2" => "Straddle",
+            "3" => "Strangle",
+            "4" => "Risk Reversal",
+            "G" => "Butterfly",
+            "S" => "Generic Spread",
+            _   => null
+        };
+
+        private static string? ToDeltaDisplayName(string? fixValue)
+        {
+            if (string.IsNullOrWhiteSpace(fixValue))
+                return null;
+
+            var trimmed = fixValue.Trim();
+            return trimmed == "0" ? "ATM" : trimmed;
         }
 
         private async Task<(string? CurrencyPair, int? Product, string? Tenor, string? Cut, string? Strategy, string? Delta)> GetInstrumentMetaAsync(
