@@ -203,15 +203,19 @@ namespace FxFixGateway.Infrastructure.Persistence
                         (@SecurityId, @SessionKey, @CurrencyPair, @MdEntryType, @PositionNo,
                          @Price, @Size, @Originator, @TraderId, @QuoteCondition, 1, @SnapshotId, @UpdatedUtc)
                     ON DUPLICATE KEY UPDATE
-                        price           = VALUES(price),
-                        size            = VALUES(size),
+                        is_active       = 1,
+                        snapshot_id     = VALUES(snapshot_id),
+                        currency_pair   = VALUES(currency_pair),
                         originator      = VALUES(originator),
                         trader_id       = VALUES(trader_id),
                         quote_condition = VALUES(quote_condition),
-                        currency_pair   = VALUES(currency_pair),
-                        is_active       = 1,
-                        snapshot_id     = VALUES(snapshot_id),
-                        updated_utc     = VALUES(updated_utc);";
+                        updated_utc     = IF(
+                            price <> VALUES(price) OR size <> VALUES(size),
+                            VALUES(updated_utc),
+                            updated_utc
+                        ),
+                        price           = VALUES(price),
+                        size            = VALUES(size);";
 
                 foreach (var entry in entries)
                 {
