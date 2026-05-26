@@ -848,6 +848,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
         /// <summary>
         /// Mappar FIX tag 310 (UnderlyingPutOrCall) till läsbart namn.
         /// 1=Single Leg, 2=Straddle, 3=Strangle, 4=Risk Reversal, G=Butterfly, S=Generic Spread
+        /// 
+        /// Okända koder returneras som-är för att möjliggöra debugging och uppdatering av mappningen.
+        /// Om Volbroker t.ex. lägger till ny strategy-kod "F" (Fly Spread) och du inte uppdaterat
+        /// denna mappning ännu, sparas "F" i databasen istället för att gå förlorad.
         /// </summary>
         private static string? ToStrategyDisplayName(string? fixValue) => fixValue?.Trim() switch
         {
@@ -857,7 +861,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             "4" => "Risk Reversal",
             "G" => "Butterfly",
             "S" => "Generic Spread",
-            _   => null
+            _   => fixValue?.Trim()  // Behåll okänd kod för debugging
         };
     }
 }
