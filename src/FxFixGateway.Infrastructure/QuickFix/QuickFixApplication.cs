@@ -743,9 +743,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         {
                             var ulGroup = new QF.Group(711, 311);
                             instrGroup.GetGroup(1, ulGroup);
-                            strategy  = TryGetField(ulGroup, 310);  // UnderlyingPutOrCall → strategy
-                            delta     = TryGetField(ulGroup, 763);  // UnderlyingSecurityDesc → delta
-                            amountCcy = TryGetField(ulGroup, 318);  // UnderlyingCurrency
+                            strategy  = ToStrategyDisplayName(TryGetField(ulGroup, 310));   // Normalisera: "2" → "Straddle"
+                            delta     = ToDeltaDisplayName(TryGetField(ulGroup, 763));      // Normalisera: "25" → "25D"
+                            amountCcy = TryGetField(ulGroup, 318);  // UnderlyingCurrency — ingen normalisering
                         }
                     }
                     catch (Exception ulEx)
@@ -859,5 +859,18 @@ namespace FxFixGateway.Infrastructure.QuickFix
             "S" => "Generic Spread",
             _   => null
         };
+
+        /// <summary>
+        /// Mappar delta-koder till display-format.
+        /// 0=ATM, alla andra värden (10, 25, etc.) behålls som de är.
+        /// </summary>
+        private static string? ToDeltaDisplayName(string? fixValue)
+        {
+            if (string.IsNullOrWhiteSpace(fixValue))
+                return null;
+
+            var trimmed = fixValue.Trim();
+            return trimmed == "0" ? "ATM" : trimmed;
+        }
     }
 }
