@@ -1,4 +1,5 @@
-﻿using System.Threading.Channels;
+using System.Collections.Concurrent;
+using System.Threading.Channels;
 using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
@@ -19,6 +20,10 @@ namespace FxFixGateway.Application.Services
         // Cache: sessionKey → securityId → (CurrencyPair, Product, Tenor, Cut, Strategy, Delta)
         private readonly Dictionary<string, Dictionary<string, (string? CurrencyPair, int? Product, string? Tenor, string? Cut, string? Strategy, string? Delta)>> _instrumentCache = new();
         private readonly object _cacheLock = new();
+
+        // Subscription cache: eliminerar DB-träff för varje inkommande 35=W.
+        // Invalideras vid omstart. Acceptabelt beteende — subscriptions ändras sällan.
+        private readonly ConcurrentDictionary<(string SessionKey, string SecurityId), bool> _subscriptionCache = new();
 
         private static readonly HashSet<string> MarketDataSessions = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -57,7 +62,19 @@ namespace FxFixGateway.Application.Services
                 return;
             }
 
-            var isSubscribed = await _snapshotRepo.IsSubscribedAsync(sessionKey, dto.SecurityId);
+            // Check subscription cache first — avoids a DB round-trip for every FIX message.
+            // Cache miss triggers one DB call per (session, security) pair, then is cached permanently.
+            var cacheKey = (sessionKey, dto.SecurityId);
+            if (!_subscriptionCache.TryGetValue(cacheKey, out var isSubscribed))
+            {
+                isSubscribed = await _snapshotRepo.IsSubscribedAsync(sessionKey, dto.SecurityId);
+                _subscriptionCache.TryAdd(cacheKey, isSubscribed);
+
+                _logger.LogDebug(
+                    "[{Session}] Subscription cache miss for SecurityId={SecId} — subscribed={Result}",
+                    sessionKey, dto.SecurityId, isSubscribed);
+            }
+
             if (!isSubscribed)
             {
                 _logger.LogDebug(
@@ -124,7 +141,7 @@ namespace FxFixGateway.Application.Services
                 return;
             }
 
-            var trades    = BuildTrades(snapshot, snapshotId: 0);
+            var trades     = BuildTrades(snapshot, snapshotId: 0);
             var snapshotId = await _snapshotRepo.InsertSnapshotAsync(snapshot, trades);
 
             _logger.LogDebug(

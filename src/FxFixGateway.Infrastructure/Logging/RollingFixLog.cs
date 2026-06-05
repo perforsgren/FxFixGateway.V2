@@ -15,6 +15,7 @@ namespace FxFixGateway.Infrastructure.Logging
         private string?       _currentFilePath;
         private DateTime      _currentDate;
         private int           _rollIndex;
+        private bool          _disposed;
         private readonly object _lock = new();
 
         public RollingFixLog(string sessionPrefix, string basePath,
@@ -38,13 +39,15 @@ namespace FxFixGateway.Infrastructure.Logging
         {
             lock (_lock)
             {
+                if (_disposed) return; // QuickFIX kan kalla Write efter Dispose under shutdown
+
                 EnsureWriter();
                 try
                 {
                     _writer!.WriteLine($"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} [{direction}] {msg}");
                     _writer.Flush();
                 }
-                catch { /* Tyst � loggen f�r inte krascha gatewayen */ }
+                catch { /* Tyst — loggen får inte krascha gatewayen */ }
             }
         }
 
@@ -103,7 +106,11 @@ namespace FxFixGateway.Infrastructure.Logging
 
         public void Dispose()
         {
-            lock (_lock) CloseWriter();
+            lock (_lock)
+            {
+                _disposed = true; // Sätts innan CloseWriter så Write() aldrig ser _writer=null utan flagga
+                CloseWriter();
+            }
         }
     }
 }

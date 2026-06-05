@@ -153,17 +153,35 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            var connectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("fix_config_prod"));
+            // DIFFERENTIATED pool sizes based on actual concurrent usage.
+            // minPoolSize=0: no permanently held connections — they are created on demand
+            // and recycled after ConnectionLifeTime=300s when idle (e.g. outside market hours).
+            var connectionString = SetConnectionPoolSize(
+                AppDbConfig.GetConnectionString("fix_config_prod"),
+                maxPoolSize: 20,
+                minPoolSize: 0);
 
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
-            Log.Information("Using GatewayDb connection string: {ConnectionString}", safeConnStr);
+            Log.Information("Using GatewayDb connection string: {ConnectionString} (pool: 0-20)", safeConnStr);
 
-            var stpConnectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("trade_stp"));
+            var stpConnectionString = SetConnectionPoolSize(
+                AppDbConfig.GetConnectionString("trade_stp"),
+                maxPoolSize: 30,
+                minPoolSize: 0);
 
             var safeSTPConnStr = System.Text.RegularExpressions.Regex.Replace(
                 stpConnectionString, @"Password=[^;]*", "Password=***");
-            Log.Information("Using STP connection string: {ConnectionString}", safeSTPConnStr);
+            Log.Information("Using STP connection string: {ConnectionString} (pool: 0-30)", safeSTPConnStr);
+
+            var fxvolConnectionString = SetConnectionPoolSize(
+                AppDbConfig.GetConnectionString("VolManager"),
+                maxPoolSize: 40,
+                minPoolSize: 0);
+
+            var safeFxvolConnStr = System.Text.RegularExpressions.Regex.Replace(
+                fxvolConnectionString, @"Password=[^;]*", "Password=***");
+            Log.Information("Using VolManager connection string: {ConnectionString} (pool: 0-40)", safeFxvolConnStr);
 
             // Infrastructure - Repositories
             services.AddSingleton<ISessionRepository>(sp =>
@@ -201,9 +219,6 @@ namespace FxFixGateway.UI
             // Proxy registreras som singleton — QuickFixEngine sätter inner-sender efter InitializeAsync
             services.AddSingleton<QuickFixSenderProxy>();
             services.AddSingleton<IMarketDataSubscriber>(sp => sp.GetRequiredService<QuickFixSenderProxy>());
-
-            // Market Data — connection string till fxvol
-            var fxvolConnectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("VolManager"));
 
             // Market Data — repositories
             services.AddSingleton<IMarketSubscriptionRepository>(sp =>
@@ -347,6 +362,35 @@ namespace FxFixGateway.UI
                 MaximumPoolSize    = 200,
                 ConnectionTimeout  = 30,
                 DefaultCommandTimeout = 30
+            };
+            return builder.ConnectionString;
+        }
+
+        /// <summary>
+        /// Sets connection pool size based on database role and expected concurrent load.
+        /// ConnectionLifeTime ensures idle connections are recycled, allowing pool to shrink under low load.
+        /// </summary>
+        /// <remarks>
+        /// Pool sizing rationale:
+        /// - fix_config_prod (20): Sessions + heartbeat updates (low frequency, ~2-10 concurrent)
+        /// - trade_stp (50): Trade capture + acknowledgments (medium frequency, ~15-20 concurrent)
+        /// - VolManager (100): Market data snapshots/trades (high frequency, ~50-65 concurrent)
+        /// 
+        /// Total: 170 connections vs 600 before
+        /// This leaves room for other applications within MySQL's max_connections limit.
+        /// </remarks>
+        private static string SetConnectionPoolSize(
+            string connectionString,
+            int maxPoolSize,
+            int minPoolSize)
+        {
+            var builder = new MySql.Data.MySqlClient.MySqlConnectionStringBuilder(connectionString)
+            {
+                MinimumPoolSize       = (uint)minPoolSize,
+                MaximumPoolSize       = (uint)maxPoolSize,
+                ConnectionTimeout     = 30,
+                DefaultCommandTimeout = 30,
+                ConnectionLifeTime    = 30  // Idle connections stängs efter 30s — pool shrinks snabbt efter startup-spik
             };
             return builder.ConnectionString;
         }
