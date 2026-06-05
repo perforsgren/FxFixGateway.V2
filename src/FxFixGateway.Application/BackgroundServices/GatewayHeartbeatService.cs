@@ -10,12 +10,14 @@ namespace FxFixGateway.Application.BackgroundServices
     /// </summary>
     public class GatewayHeartbeatService : BackgroundService, ISessionHeartbeatNotifier
     {
-        private static readonly TimeSpan Interval = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan Interval      = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan OfflineTimeout = TimeSpan.FromSeconds(10);
 
         private readonly IGatewayHeartbeatRepository      _repo;
         private readonly ILogger<GatewayHeartbeatService> _logger;
 
         private readonly Dictionary<string, CancellationTokenSource> _sessions = new();
+        private readonly List<Task> _pendingOfflineTasks = new();
         private readonly object _lock = new();
 
         public GatewayHeartbeatService(
@@ -26,11 +28,11 @@ namespace FxFixGateway.Application.BackgroundServices
             _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         }
 
-        // Krävs av BackgroundService men vi startar inget globalt här
+        // KrÃ¤vs av BackgroundService men vi startar inget globalt hÃ¤r
         protected override Task ExecuteAsync(CancellationToken stoppingToken) => Task.CompletedTask;
 
         /// <summary>
-        /// Anropas av QuickFixApplication.OnLogon — startar heartbeat-loop för sessionen.
+        /// Anropas av QuickFixApplication.OnLogon â€” startar heartbeat-loop fÃ¶r sessionen.
         /// </summary>
         public void SessionOnline(string sessionKey)
         {
@@ -45,11 +47,11 @@ namespace FxFixGateway.Application.BackgroundServices
                 _ = Task.Run(() => RunLoopAsync(sessionKey, cts.Token));
             }
 
-            _logger.LogInformation("[Heartbeat] Session {Session} ONLINE — heartbeat started", sessionKey);
+            _logger.LogInformation("[Heartbeat] Session {Session} ONLINE â€” heartbeat started", sessionKey);
         }
 
         /// <summary>
-        /// Anropas av QuickFixApplication.OnLogout — stoppar loopen och markerar sessionen offline.
+        /// Anropas av QuickFixApplication.OnLogout â€” stoppar loopen och markerar sessionen offline.
         /// </summary>
         public void SessionOffline(string sessionKey)
         {
@@ -66,8 +68,8 @@ namespace FxFixGateway.Application.BackgroundServices
             cts.Cancel();
             cts.Dispose();
 
-            // Markera offline i DB direkt utan att vänta på nästa beat
-            _ = Task.Run(async () =>
+            // Markera offline i DB â€” spÃ¥ra tasken sÃ¥ StopAsync kan awaita den.
+            var offlineTask = Task.Run(async () =>
             {
                 try   { await _repo.SetOfflineAsync(sessionKey); }
                 catch (Exception ex)
@@ -76,7 +78,45 @@ namespace FxFixGateway.Application.BackgroundServices
                 }
             });
 
-            _logger.LogInformation("[Heartbeat] Session {Session} OFFLINE — heartbeat stopped", sessionKey);
+            lock (_lock)
+                _pendingOfflineTasks.Add(offlineTask);
+
+            _logger.LogInformation("[Heartbeat] Session {Session} OFFLINE â€” heartbeat stopped", sessionKey);
+        }
+
+        /// <summary>
+        /// SÃ¤kerstÃ¤ller att alla OFFLINE-skrivningar hinns med innan host-livscykeln avslutas.
+        /// </summary>
+        public override async Task StopAsync(CancellationToken cancellationToken)
+        {
+            // Markera eventuella sessioner som inte fick OnLogout (t.ex. hard kill)
+            List<string> remainingSessions;
+            lock (_lock)
+                remainingSessions = [.. _sessions.Keys];
+
+            foreach (var key in remainingSessions)
+                SessionOffline(key);
+
+            // Awaita alla pÃ¥gÃ¥ende OFFLINE DB-skrivningar med timeout
+            Task[] pending;
+            lock (_lock)
+                pending = [.. _pendingOfflineTasks];
+
+            if (pending.Length > 0)
+            {
+                _logger.LogInformation("[Heartbeat] Waiting for {Count} OFFLINE write(s) to complete...", pending.Length);
+                try
+                {
+                    await Task.WhenAll(pending).WaitAsync(OfflineTimeout, cancellationToken);
+                    _logger.LogInformation("[Heartbeat] All OFFLINE writes completed.");
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "[Heartbeat] One or more OFFLINE writes did not complete before shutdown.");
+                }
+            }
+
+            await base.StopAsync(cancellationToken);
         }
 
         private async Task RunLoopAsync(string sessionKey, CancellationToken token)
