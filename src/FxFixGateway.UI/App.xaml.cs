@@ -1,4 +1,4 @@
-﻿using FxFixGateway.Application.BackgroundServices;
+using FxFixGateway.Application.BackgroundServices;
 using FxFixGateway.Application.Services;
 using FxFixGateway.Domain.Enums;                                          // DisconnectReason
 using FxFixGateway.Domain.Interfaces;
@@ -153,13 +153,13 @@ namespace FxFixGateway.UI
 
         private void ConfigureServices(IServiceCollection services, IConfiguration configuration)
         {
-            var connectionString = AppDbConfig.GetConnectionString("fix_config_prod");
+            var connectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("fix_config_prod"));
 
             var safeConnStr = System.Text.RegularExpressions.Regex.Replace(
                 connectionString, @"Password=[^;]*", "Password=***");
             Log.Information("Using GatewayDb connection string: {ConnectionString}", safeConnStr);
 
-            var stpConnectionString = AppDbConfig.GetConnectionString("trade_stp");
+            var stpConnectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("trade_stp"));
 
             var safeSTPConnStr = System.Text.RegularExpressions.Regex.Replace(
                 stpConnectionString, @"Password=[^;]*", "Password=***");
@@ -203,7 +203,7 @@ namespace FxFixGateway.UI
             services.AddSingleton<IMarketDataSubscriber>(sp => sp.GetRequiredService<QuickFixSenderProxy>());
 
             // Market Data — connection string till fxvol
-            var fxvolConnectionString = AppDbConfig.GetConnectionString("VolManager");
+            var fxvolConnectionString = AugmentPoolSettings(AppDbConfig.GetConnectionString("VolManager"));
 
             // Market Data — repositories
             services.AddSingleton<IMarketSubscriptionRepository>(sp =>
@@ -333,6 +333,22 @@ namespace FxFixGateway.UI
 
             services.AddSingleton<IPushNotificationService, PushoverNotificationService>();
             services.AddHostedService<FixEngineHostedService>();
+        }
+
+        /// <summary>
+        /// Augments a MySQL connection string with pool settings suited for a
+        /// high-frequency WPF + FIX-engine workload running in Release mode.
+        /// </summary>
+        private static string AugmentPoolSettings(string connectionString)
+        {
+            var builder = new MySql.Data.MySqlClient.MySqlConnectionStringBuilder(connectionString)
+            {
+                MinimumPoolSize    = 5,
+                MaximumPoolSize    = 200,
+                ConnectionTimeout  = 30,
+                DefaultCommandTimeout = 30
+            };
+            return builder.ConnectionString;
         }
 
         public IServiceProvider? Services => _host?.Services;

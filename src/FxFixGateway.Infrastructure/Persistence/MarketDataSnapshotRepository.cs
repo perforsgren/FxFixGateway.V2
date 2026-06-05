@@ -1,4 +1,4 @@
-﻿using FxFixGateway.Domain.Entities;
+using FxFixGateway.Domain.Entities;
 using FxFixGateway.Domain.Interfaces;
 using MySql.Data.MySqlClient;
 using System.Data;
@@ -180,8 +180,7 @@ namespace FxFixGateway.Infrastructure.Persistence
 
                 const string deactivateSql = @"
                     UPDATE fxvol.active_market_book
-                    SET    is_active   = 0,
-                           updated_utc = @UpdatedUtc
+                    SET    is_active   = 0
                     WHERE  session_key = @SessionKey
                       AND  security_id = @SecurityId;";
 

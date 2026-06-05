@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Threading.Tasks;
@@ -118,9 +118,12 @@ namespace FxFixGateway.Infrastructure.Persistence
 
                 await command.ExecuteNonQueryAsync();
             }
+            catch (OperationCanceledException)
+            {
+                // Expected during application shutdown — SSL handshake cancelled.
+            }
             catch (MySqlException ex)
             {
-                // Skriv ut ALLA detaljer till Debug output
                 System.Diagnostics.Debug.WriteLine("========== MySQL ERROR in LogMessageAsync ==========");
                 System.Diagnostics.Debug.WriteLine($"Error Number: {ex.Number}");
                 System.Diagnostics.Debug.WriteLine($"SqlState: {ex.SqlState}");

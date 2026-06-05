@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -21,8 +21,8 @@ namespace FxFixGateway.UI
         {
             InitializeComponent();
 
-            // DataContext sätts av DI när fönstret skapas
-            // (se App.xaml.cs startup)
+            var iconUri = new Uri("pack://application:,,,/Resources/app.ico", UriKind.Absolute);
+            Icon = System.Windows.Media.Imaging.BitmapFrame.Create(iconUri);
         }
 
         private async void Window_Loaded(object sender, RoutedEventArgs e)
