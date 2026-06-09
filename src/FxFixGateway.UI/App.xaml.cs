@@ -176,7 +176,7 @@ namespace FxFixGateway.UI
 
             var fxvolConnectionString = SetConnectionPoolSize(
                 AppDbConfig.GetConnectionString("VolManager"),
-                maxPoolSize: 40,
+                maxPoolSize: 60,
                 minPoolSize: 0);
 
             var safeFxvolConnStr = System.Text.RegularExpressions.Regex.Replace(
