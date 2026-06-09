@@ -2,12 +2,9 @@ using System;
 
 namespace FxFixGateway.Domain.Interfaces
 {
-    /// <summary>
-    /// Wrapper for TTL.PostMarker.Client.Session.
-    /// </summary>
     public interface IPostMarkerSession : IDisposable
     {
-        object Inner { get; }
+        void RegisterPayloadHandler(IPostMarkerPayloadHandler handler);
         void Connect(string username, string password, int reconnectSeconds, bool autoReconnect);
         void StartSubscription();
         void Acknowledge(int sequenceNo);
