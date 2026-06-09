@@ -128,9 +128,8 @@ namespace FxFixGateway.UI
                         {
                             try
                             {
-                                await push.SendDisconnectAsync("Gateway", DisconnectReason.UserExit)
-                                          .WaitAsync(TimeSpan.FromSeconds(4))
-                                          .ConfigureAwait(false);
+                                var sendTask = push.SendDisconnectAsync("Gateway", DisconnectReason.UserExit);
+                                await Task.WhenAny(sendTask, Task.Delay(TimeSpan.FromSeconds(4))).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {

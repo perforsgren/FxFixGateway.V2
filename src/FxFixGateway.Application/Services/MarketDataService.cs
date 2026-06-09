@@ -93,17 +93,13 @@ namespace FxFixGateway.Application.Services
 
         private async Task ConsumeAsync(CancellationToken ct)
         {
-            await foreach (var (sessionKey, dto) in _channel.Reader.ReadAllAsync(ct))
+            while (await _channel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
             {
-                try
+                while (_channel.Reader.TryRead(out var entry))
                 {
-                    await ProcessSnapshotAsync(sessionKey, dto);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex,
-                        "[{Session}] Consumer failed for SecurityId={SecId}",
-                        sessionKey, dto.SecurityId);
+                    var (sessionKey, dto) = entry;
+                    try { await ProcessSnapshotAsync(sessionKey, dto).ConfigureAwait(false); }
+                    catch (Exception ex) { _logger.LogError(ex, "[{Session}] Consumer failed for SecurityId={SecId}", sessionKey, dto.SecurityId); }
                 }
             }
         }
@@ -194,10 +190,8 @@ namespace FxFixGateway.Application.Services
                     Delta          = ToDeltaDisplayName(snapshot.Delta),        // normalisera här
                     Price          = e.Price,
                     Size           = e.Size,
-                    TradeDate      = e.EntryDate.HasValue
-                        ? DateOnly.FromDateTime(e.EntryDate.Value) : null,
-                    TradeTime      = e.EntryTime.HasValue
-                        ? TimeOnly.FromTimeSpan(e.EntryTime.Value) : null,
+                    TradeDate = e.EntryDate.HasValue ? e.EntryDate.Value : (DateTime?)null,
+                    TradeTime = e.EntryTime.HasValue ? e.EntryTime.Value : (TimeSpan?)null,
                     TradeCondition = e.TradeCondition,
                     SnapshotId     = snapshotId,
                     ReceivedUtc    = now
@@ -284,7 +278,7 @@ namespace FxFixGateway.Application.Services
 
         public async ValueTask DisposeAsync()
         {
-            await _cts.CancelAsync();
+            _cts.Cancel();
             _channel.Writer.Complete();
             try { await _consumerTask.ConfigureAwait(false); } catch { /* intentional */ }
             _cts.Dispose();

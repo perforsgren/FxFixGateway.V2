@@ -3,27 +3,27 @@ using FxFixGateway.Domain.Entities;
 namespace FxFixGateway.Domain.Interfaces
 {
     /// <summary>
-    /// Lagrar och h‰mtar instrument-katalogen frÂn market_data.market_instruments.
-    /// Populeras frÂn inkommande 35=y (SecurityList).
+    /// Lagrar och h√§mtar instrument-katalogen fr√•n market_data.market_instruments.
+    /// Populeras fr√•n inkommande 35=y (SecurityList).
     /// </summary>
     public interface IMarketInstrumentRepository
     {
         /// <summary>Upsert: uppdatera om SecurityId redan finns, annars insert.</summary>
         Task UpsertAsync(MarketInstrument instrument);
 
-        /// <summary>H‰mta instrument matchande givet filter (valutapar + produkttyp).</summary>
+        /// <summary>H√§mta instrument matchande givet filter (valutapar + produkttyp).</summary>
         Task<IReadOnlyList<MarketInstrument>> GetByFilterAsync(string sessionKey, string currencyPair, int product);
 
         /// <summary>Markera instrument som prenumererade (is_subscribed = true).</summary>
         Task MarkAsSubscribedAsync(string sessionKey, IEnumerable<string> securityIds);
 
-        /// <summary>H‰mta ett specifikt instrument via SecurityID ó anv‰nds fˆr meta-lookup i MarketDataService.</summary>
+        /// <summary>H√§mta ett specifikt instrument via SecurityID ‚Äî anv√§nds f√∂r meta-lookup i MarketDataService.</summary>
         Task<MarketInstrument?> GetBySecurityIdAsync(string sessionKey, string securityId);
 
         /// <summary>
-        /// H‰mtar tillÂtna tenor-koder frÂn fxvol.vol_tenor_def.
-        /// Anv‰nds fˆr att filtrera bort instrument med ok‰nd tenor vid SecurityList-hantering.
+        /// H√§mtar till√•tna tenor-koder fr√•n fxvol.vol_tenor_def.
+        /// Anv√§nds f√∂r att filtrera bort instrument med ok√§nd tenor vid SecurityList-hantering.
         /// </summary>
-        Task<IReadOnlySet<string>> GetAllowedTenorCodesAsync();
+        Task<ISet<string>> GetAllowedTenorCodesAsync();
     }
 }

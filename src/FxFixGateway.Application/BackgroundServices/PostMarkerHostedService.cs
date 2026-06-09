@@ -82,7 +82,7 @@ namespace FxFixGateway.Application.BackgroundServices
 
             if (_ackConsumerTask != null)
             {
-                try { await _ackConsumerTask.WaitAsync(TimeSpan.FromSeconds(5)); }
+                try { await Task.WhenAny(_ackConsumerTask, Task.Delay(TimeSpan.FromSeconds(5))).ConfigureAwait(false); }
                 catch (Exception ex) { _logger.LogWarning(ex, "[PostMarker] ACK consumer did not drain cleanly"); }
             }
 
@@ -96,16 +96,19 @@ namespace FxFixGateway.Application.BackgroundServices
 
         private async Task ConsumeAcksAsync(CancellationToken ct)
         {
-            await foreach (var item in _ackChannel.Reader.ReadAllAsync(ct))
+            while (await _ackChannel.Reader.WaitToReadAsync(ct).ConfigureAwait(false))
             {
-                try
+                while (_ackChannel.Reader.TryRead(out var item))
                 {
-                    _session.Acknowledge(item.SequenceNumber);
-                    _logger.LogDebug("[PostMarker] ACK sent: SeqNo={SeqNo}", item.SequenceNumber);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "[PostMarker] ACK failed: SeqNo={SeqNo}", item.SequenceNumber);
+                    try
+                    {
+                        _session.Acknowledge(item.SequenceNumber);
+                        _logger.LogDebug("[PostMarker] ACK sent: SeqNo={SeqNo}", item.SequenceNumber);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "[PostMarker] ACK failed: SeqNo={SeqNo}", item.SequenceNumber);
+                    }
                 }
             }
         }
