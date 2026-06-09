@@ -5,6 +5,7 @@ using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Infrastructure.Logging;
 using FxFixGateway.Infrastructure.Notifications;                          // PushoverNotificationService
 using FxFixGateway.Infrastructure.Persistence;
+using FxFixGateway.Infrastructure.PostMarker;                             // PostMarkerSession, PostMarkerAckChannel, PostMarkerPayloadHandler
 using FxFixGateway.Infrastructure.QuickFix;
 using FxFixGateway.UI.ViewModels;
 using Microsoft.Extensions.Configuration;
@@ -210,7 +211,8 @@ namespace FxFixGateway.UI
                 var parsers = new List<IInboundMessageParser>
                 {
                     new VolbrokerFixAeParser(lookupRepo),
-                    new FenicsFixAeParser(lookupRepo)
+                    new FenicsFixAeParser(lookupRepo),
+                    new FXOhubXmlFileParser(lookupRepo)
                 };
 
                 return new MessageInParserOrchestrator(messageInRepo, stpRepo, parsers);
@@ -233,43 +235,43 @@ namespace FxFixGateway.UI
             services.AddSingleton<IMarketDataService>(sp =>
             {
                 var snapshotRepo = sp.GetRequiredService<IMarketDataSnapshotRepository>();
-                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
-                var logger       = sp.GetRequiredService<ILogger<MarketDataService>>();
+                var instrRepo = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var logger = sp.GetRequiredService<ILogger<MarketDataService>>();
                 return new MarketDataService(snapshotRepo, instrRepo, logger);
             });
 
             // Market Data — orchestration
             services.AddSingleton<IMarketDataOrchestrator>(sp =>
             {
-                var subscriber   = sp.GetRequiredService<IMarketDataSubscriber>();
-                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
-                var logger       = sp.GetRequiredService<ILogger<MarketDataOrchestrator>>();
+                var subscriber = sp.GetRequiredService<IMarketDataSubscriber>();
+                var instrRepo = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var logger = sp.GetRequiredService<ILogger<MarketDataOrchestrator>>();
                 return new MarketDataOrchestrator(subscriber, instrRepo, logger);
             });
 
             services.AddSingleton<ISecurityListService>(sp =>
             {
-                var subRepo      = sp.GetRequiredService<IMarketSubscriptionRepository>();
-                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var subRepo = sp.GetRequiredService<IMarketSubscriptionRepository>();
+                var instrRepo = sp.GetRequiredService<IMarketInstrumentRepository>();
                 var orchestrator = sp.GetRequiredService<IMarketDataOrchestrator>();
-                var logger       = sp.GetRequiredService<ILogger<SecurityListService>>();
+                var logger = sp.GetRequiredService<ILogger<SecurityListService>>();
                 return new SecurityListService(subRepo, instrRepo, orchestrator, logger);
             });
 
             // Infrastructure - FIX Engine
             services.AddSingleton<IFixEngine>(sp =>
             {
-                var logger            = sp.GetRequiredService<ILogger<QuickFixEngine>>();
-                var dataDictPath      = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
-                var messageInSvc      = sp.GetRequiredService<IMessageInService>();
-                var tradeOrch         = sp.GetRequiredService<IMessageInParserOrchestrator>();
-                var secListSvc        = sp.GetRequiredService<ISecurityListService>();
-                var mdOrchestrator    = sp.GetRequiredService<IMarketDataOrchestrator>();
-                var senderProxy       = sp.GetRequiredService<QuickFixSenderProxy>();
-                var mdService         = sp.GetRequiredService<IMarketDataService>();
-                var quoteRequestSvc   = sp.GetRequiredService<IQuoteRequestService>();
+                var logger = sp.GetRequiredService<ILogger<QuickFixEngine>>();
+                var dataDictPath = Path.Combine(Directory.GetCurrentDirectory(), "FIX44_Volbroker.xml");
+                var messageInSvc = sp.GetRequiredService<IMessageInService>();
+                var tradeOrch = sp.GetRequiredService<IMessageInParserOrchestrator>();
+                var secListSvc = sp.GetRequiredService<ISecurityListService>();
+                var mdOrchestrator = sp.GetRequiredService<IMarketDataOrchestrator>();
+                var senderProxy = sp.GetRequiredService<QuickFixSenderProxy>();
+                var mdService = sp.GetRequiredService<IMarketDataService>();
+                var quoteRequestSvc = sp.GetRequiredService<IQuoteRequestService>();
                 var heartbeatNotifier = sp.GetRequiredService<ISessionHeartbeatNotifier>();
-                var pushNotification  = sp.GetRequiredService<IPushNotificationService>(); // ← lägg till
+                var pushNotification = sp.GetRequiredService<IPushNotificationService>(); // ← lägg till
 
                 return new QuickFixEngine(
                     logger,
@@ -307,7 +309,21 @@ namespace FxFixGateway.UI
             services.AddHostedService(sp => sp.GetRequiredService<GatewayHeartbeatService>());
             services.AddSingleton<ISessionHeartbeatNotifier>(sp =>
                 sp.GetRequiredService<GatewayHeartbeatService>());
-    
+
+            // PostMarker — FXOhub venue
+            services.AddSingleton<PostMarkerAckChannel>();
+            services.AddSingleton<IPostMarkerPayloadHandler>(sp =>
+                new PostMarkerPayloadHandler(
+                    sp.GetRequiredService<PostMarkerAckChannel>(),
+                    sp.GetRequiredService<IMessageInService>(),
+                    sp.GetRequiredService<IMessageInParserOrchestrator>(),
+                    sp.GetRequiredService<ILogger<PostMarkerPayloadHandler>>()));
+            services.AddSingleton<IPostMarkerSession, PostMarkerSession>();
+            services.AddSingleton<IPostMarkerRepository>(sp =>
+                new PostMarkerRepository(stpConnectionString));
+            services.AddHostedService<PostMarkerHostedService>();
+            services.AddHostedService<PostMarkerAcceptPollingService>();
+
             // ViewModels
             services.AddTransient<SessionListViewModel>();
             services.AddTransient<MainViewModel>();
@@ -339,10 +355,10 @@ namespace FxFixGateway.UI
 
             services.AddSingleton<IQuoteRequestService>(sp =>
             {
-                var quoteRepo    = sp.GetRequiredService<IQuoteRequestRepository>();
-                var instrRepo    = sp.GetRequiredService<IMarketInstrumentRepository>();
-                var subRepo      = sp.GetRequiredService<IMarketSubscriptionRepository>();
-                var logger       = sp.GetRequiredService<ILogger<QuoteRequestService>>();
+                var quoteRepo = sp.GetRequiredService<IQuoteRequestRepository>();
+                var instrRepo = sp.GetRequiredService<IMarketInstrumentRepository>();
+                var subRepo = sp.GetRequiredService<IMarketSubscriptionRepository>();
+                var logger = sp.GetRequiredService<ILogger<QuoteRequestService>>();
                 return new QuoteRequestService(quoteRepo, instrRepo, subRepo, logger);
             });
 
@@ -358,9 +374,9 @@ namespace FxFixGateway.UI
         {
             var builder = new MySql.Data.MySqlClient.MySqlConnectionStringBuilder(connectionString)
             {
-                MinimumPoolSize    = 5,
-                MaximumPoolSize    = 200,
-                ConnectionTimeout  = 30,
+                MinimumPoolSize = 5,
+                MaximumPoolSize = 200,
+                ConnectionTimeout = 30,
                 DefaultCommandTimeout = 30
             };
             return builder.ConnectionString;
@@ -386,11 +402,11 @@ namespace FxFixGateway.UI
         {
             var builder = new MySql.Data.MySqlClient.MySqlConnectionStringBuilder(connectionString)
             {
-                MinimumPoolSize       = (uint)minPoolSize,
-                MaximumPoolSize       = (uint)maxPoolSize,
-                ConnectionTimeout     = 30,
+                MinimumPoolSize = (uint)minPoolSize,
+                MaximumPoolSize = (uint)maxPoolSize,
+                ConnectionTimeout = 30,
                 DefaultCommandTimeout = 30,
-                ConnectionLifeTime    = 30  // Idle connections stängs efter 30s — pool shrinks snabbt efter startup-spik
+                ConnectionLifeTime = 30  // Idle connections stängs efter 30s — pool shrinks snabbt efter startup-spik
             };
             return builder.ConnectionString;
         }
