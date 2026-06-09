@@ -8,7 +8,7 @@ namespace FxFixGateway.Domain.Interfaces
         void Connect(string username, string password, int reconnectSeconds, bool autoReconnect);
         void StartSubscription();
         void Acknowledge(int sequenceNo);
-        void Accept(int sequenceNo, object? metadata);
+        void Accept(int sequenceNo, object metadata);
         void Disconnect();
     }
 }

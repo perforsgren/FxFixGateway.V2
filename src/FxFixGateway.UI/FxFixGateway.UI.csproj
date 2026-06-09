@@ -3,7 +3,8 @@
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net4.8-windows</TargetFramework>
-		<Nullable>enable</Nullable>
+		<Nullable>disable</Nullable>
+		<LangVersion>latest</LangVersion>
 		<ImplicitUsings>enable</ImplicitUsings>
 		<UseWPF>true</UseWPF>
 		<ApplicationIcon>Resources\app.ico</ApplicationIcon>

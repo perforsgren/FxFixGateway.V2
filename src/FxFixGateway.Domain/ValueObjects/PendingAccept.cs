@@ -18,13 +18,13 @@ namespace FxFixGateway.Domain.ValueObjects
             CreatedUtc = createdUtc;
         }
 
-        public bool Equals(PendingAccept? other)
+        public bool Equals(PendingAccept other)
         {
             if (other is null) return false;
             return TradeId == other.TradeId;
         }
 
-        public override bool Equals(object? obj) => Equals(obj as PendingAccept);
+        public override bool Equals(object obj) => Equals(obj as PendingAccept);
         public override int GetHashCode() => TradeId.GetHashCode();
 
         public override string ToString()

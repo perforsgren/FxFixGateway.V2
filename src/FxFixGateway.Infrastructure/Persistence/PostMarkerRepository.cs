@@ -39,14 +39,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@Status", DbPostMarkerStatus.ReadyToAccept);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {

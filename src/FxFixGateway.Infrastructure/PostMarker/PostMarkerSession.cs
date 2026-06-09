@@ -34,7 +34,7 @@ namespace FxFixGateway.Infrastructure.PostMarker
             _inner.Acknowledge(sequenceNo);
         }
 
-        public void Accept(int sequenceNo, object? metadata)
+        public void Accept(int sequenceNo, object metadata)
         {
             _inner.Accept(sequenceNo, metadata?.ToString() ?? string.Empty);
         }

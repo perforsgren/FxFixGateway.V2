@@ -31,7 +31,7 @@ namespace FxFixGateway.UI
 {
     public partial class App : System.Windows.Application
     {
-        private IHost? _host;
+        private IHost _host;
 
         protected override async void OnStartup(StartupEventArgs e)
         {
@@ -411,6 +411,6 @@ namespace FxFixGateway.UI
             return builder.ConnectionString;
         }
 
-        public IServiceProvider? Services => _host?.Services;
+        public IServiceProvider Services => _host?.Services;
     }
 }

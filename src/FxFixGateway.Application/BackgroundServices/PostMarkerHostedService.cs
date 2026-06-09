@@ -17,9 +17,9 @@ namespace FxFixGateway.Application.BackgroundServices
         private readonly IConfiguration _configuration;
         private readonly ILogger<PostMarkerHostedService> _logger;
 
-        private Thread? _subscriptionThread;
-        private Task? _ackConsumerTask;
-        private CancellationTokenSource? _cts;
+        private Thread _subscriptionThread;
+        private Task _ackConsumerTask;
+        private CancellationTokenSource _cts;
 
         public PostMarkerHostedService(
             IPostMarkerSession session,
