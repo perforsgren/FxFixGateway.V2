@@ -7,7 +7,7 @@ namespace FxFixGateway.Infrastructure.Persistence
 {
     /// <summary>
     /// Lagrar instrument-katalogen i fxvol.market_instruments.
-    /// Upsert-baserad: SecurityId är unik nyckel per session.
+    /// Upsert-baserad: SecurityId Ã¤r unik nyckel per session.
     /// </summary>
     public class MarketInstrumentRepository : IMarketInstrumentRepository
     {
@@ -202,7 +202,7 @@ namespace FxFixGateway.Infrastructure.Persistence
             }
         }
 
-        public async Task<IReadOnlySet<string>> GetAllowedTenorCodesAsync()
+        public async Task<ISet<string>> GetAllowedTenorCodesAsync()
         {
             var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

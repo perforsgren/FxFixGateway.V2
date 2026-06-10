@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 
 namespace FxFixGateway.Domain.ValueObjects
 {
@@ -180,7 +180,13 @@ namespace FxFixGateway.Domain.ValueObjects
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(ConnectionId, SessionKey);
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 23 + ConnectionId.GetHashCode();
+                hash = hash * 23 + (SessionKey?.GetHashCode() ?? 0);
+                return hash;
+            }
         }
 
         public static bool operator ==(SessionConfiguration left, SessionConfiguration right)

@@ -6,15 +6,15 @@ namespace FxFixGateway.Infrastructure.Logging
     /// ILogFactory som skapar RollingFixLog per QuickFIX-session.
     /// Konfigureras med maxFileSizeBytes och retainedDays.
     /// </summary>
-    public sealed class RollingFixLogFactory : global::QuickFix.Logger.ILogFactory
+    public sealed class RollingFixLogFactory : global::QuickFix.ILogFactory
     {
         private readonly string _basePath;
         private readonly long   _maxFileSizeBytes;
         private readonly int    _retainedDays;
 
-        /// <param name="basePath">Katalog för FIX-audit-loggarna, t.ex. "log"</param>
+        /// <param name="basePath">Katalog fÃ¶r FIX-audit-loggarna, t.ex. "log"</param>
         /// <param name="maxFileSizeBytes">Max storlek per fil innan rotation (default 20 MB)</param>
-        /// <param name="retainedDays">Antal dagar att behålla gamla loggar (default 7)</param>
+        /// <param name="retainedDays">Antal dagar att behÃ¥lla gamla loggar (default 7)</param>
         public RollingFixLogFactory(
             string basePath       = "log",
             long maxFileSizeBytes = 20 * 1024 * 1024,
@@ -25,14 +25,14 @@ namespace FxFixGateway.Infrastructure.Logging
             _retainedDays     = retainedDays;
         }
 
-        public global::QuickFix.Logger.ILog Create(global::QuickFix.SessionID sessionId)
+        public global::QuickFix.ILog Create(global::QuickFix.SessionID sessionId)
         {
             var prefix = $"{sessionId.BeginString}-{sessionId.SenderCompID}-{sessionId.TargetCompID}"
                 .Replace("/", "_").Replace("\\", "_").Replace(":", "_");
             return new RollingFixLog(prefix, _basePath, _maxFileSizeBytes, _retainedDays);
         }
 
-        public global::QuickFix.Logger.ILog CreateNonSessionLog()
+        public global::QuickFix.ILog CreateNonSessionLog()
             => new RollingFixLog("quickfix-nonsession", _basePath, _maxFileSizeBytes, _retainedDays);
     }
 }

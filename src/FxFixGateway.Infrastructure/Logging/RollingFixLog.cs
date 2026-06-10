@@ -4,7 +4,7 @@ using System.Text;
 
 namespace FxFixGateway.Infrastructure.Logging
 {
-    public sealed class RollingFixLog : global::QuickFix.Logger.ILog, IDisposable
+    public sealed class RollingFixLog : global::QuickFix.ILog, IDisposable
     {
         private readonly string  _basePath;
         private readonly string  _sessionPrefix;

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using FxFixGateway.Domain.Enums;
 
 namespace FxFixGateway.Domain.ValueObjects
@@ -45,7 +45,17 @@ namespace FxFixGateway.Domain.ValueObjects
 
         public override bool Equals(object? obj) => Equals(obj as MessageLogEntry);
 
-        public override int GetHashCode() => HashCode.Combine(Timestamp, Direction, MsgType);
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                hash = hash * 23 + Timestamp.GetHashCode();
+                hash = hash * 23 + Direction.GetHashCode();
+                hash = hash * 23 + (MsgType?.GetHashCode() ?? 0);
+                return hash;
+            }
+        }
 
         public override string ToString()
             => $"[{Timestamp:HH:mm:ss}] {Direction} {MsgType} - {Summary}";
