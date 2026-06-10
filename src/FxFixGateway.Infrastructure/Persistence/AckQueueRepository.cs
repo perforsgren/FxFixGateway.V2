@@ -46,14 +46,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
                 command.Parameters.AddWithValue("@StatusReady", DbAckStatus.ReadyToAck);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
@@ -106,14 +106,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
                 command.Parameters.AddWithValue("@StatusRejected", DbAckStatus.AckRejected);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
@@ -180,10 +180,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
                 command.Parameters.AddWithValue("@StatusNew", DbAckStatus.New);
@@ -192,7 +192,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 command.Parameters.AddWithValue("@StatusError", DbAckStatus.AckError);
                 command.Parameters.AddWithValue("@StatusRejectSent", DbAckStatus.AckRejectSent);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
@@ -261,10 +261,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@TradeId", tradeId);
                 command.Parameters.AddWithValue("@Status", dbStatus);
                 command.Parameters.AddWithValue("@LastStatusUtc", sentUtc ?? DateTime.UtcNow);
@@ -296,10 +296,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@StatusNew", DbAckStatus.New);
                 command.Parameters.AddWithValue("@StatusReady", DbAckStatus.ReadyToAck);
@@ -336,10 +336,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@StpTradeId", stpTradeId);
                 command.Parameters.AddWithValue("@TimestampUtc", DateTime.UtcNow);
                 command.Parameters.AddWithValue("@EventType", eventType);
