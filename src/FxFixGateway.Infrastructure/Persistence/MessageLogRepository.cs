@@ -48,14 +48,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@MaxCount", maxCount);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
@@ -64,10 +64,10 @@ namespace FxFixGateway.Infrastructure.Persistence
                         var timestamp = reader.GetDateTime(0);
                         var directionStr = reader.IsDBNull(1) ? "Incoming" : reader.GetString(1);
                         var direction = Enum.TryParse<MessageDirection>(directionStr, out var dir) ? dir : MessageDirection.Incoming;
-                        
+
                         var msgType = reader.IsDBNull(2) ? "?" : reader.GetString(2);
                         if (string.IsNullOrWhiteSpace(msgType)) msgType = "?";
-                        
+
                         var rawMessage = reader.IsDBNull(3) ? string.Empty : reader.GetString(3);
 
                         var summary = GetMessageSummary(msgType);
@@ -82,7 +82,6 @@ namespace FxFixGateway.Infrastructure.Persistence
             }
             catch (MySqlException ex)
             {
-                // Skriv ut ALLA detaljer till Debug output
                 System.Diagnostics.Debug.WriteLine("========== MySQL ERROR in GetRecentAsync ==========");
                 System.Diagnostics.Debug.WriteLine($"Error Number: {ex.Number}");
                 System.Diagnostics.Debug.WriteLine($"SqlState: {ex.SqlState}");
@@ -106,10 +105,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@MessageType", msgType ?? "?");
                 command.Parameters.AddWithValue("@RawMessage", rawMessage ?? string.Empty);

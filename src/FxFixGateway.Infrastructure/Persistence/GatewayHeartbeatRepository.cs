@@ -46,9 +46,9 @@ namespace FxFixGateway.Infrastructure.Persistence
                     status   = 'ONLINE',
                     beat_utc = VALUES(beat_utc);";
 
-            await using var connection = new MySqlConnection(_connectionString);
+            using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
-            await using var cmd = new MySqlCommand(sql, connection);
+            using var cmd = new MySqlCommand(sql, connection);
             cmd.Parameters.AddWithValue("@SessionKey", sessionKey);
             await cmd.ExecuteNonQueryAsync();
         }
@@ -70,9 +70,9 @@ namespace FxFixGateway.Infrastructure.Persistence
             {
                 try
                 {
-                    await using var connection = new MySqlConnection(_nonPooledConnectionString);
+                    using var connection = new MySqlConnection(_nonPooledConnectionString);
                     await connection.OpenAsync();
-                    await using var cmd = new MySqlCommand(sql, connection);
+                    using var cmd = new MySqlCommand(sql, connection);
                     cmd.Parameters.AddWithValue("@SessionKey", sessionKey);
                     await cmd.ExecuteNonQueryAsync();
                     return; // success

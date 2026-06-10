@@ -36,30 +36,30 @@ namespace FxFixGateway.Infrastructure.Persistence
                      @RawPayload, @ReceivedUtc);
                 SELECT LAST_INSERT_ID();";
 
-            await using var connection = new MySqlConnection(_connectionString);
+            using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            await using var command = new MySqlCommand(sql, connection);
-            command.Parameters.AddWithValue("@SessionKey",       request.SessionKey);
-            command.Parameters.AddWithValue("@QuoteReqId",       (object?)request.QuoteReqId       ?? DBNull.Value);
-            command.Parameters.AddWithValue("@SecurityId",       (object?)request.SecurityId       ?? DBNull.Value);
-            command.Parameters.AddWithValue("@Symbol",           (object?)request.Symbol           ?? DBNull.Value);
-            command.Parameters.AddWithValue("@Product",          (object?)request.Product          ?? DBNull.Value);
-            command.Parameters.AddWithValue("@QuoteStyle",       (object?)request.QuoteStyle       ?? DBNull.Value);
-            command.Parameters.AddWithValue("@DeltaStyle",       (object?)request.DeltaStyle       ?? DBNull.Value);
-            command.Parameters.AddWithValue("@StrategyType",     (object?)request.StrategyType     ?? DBNull.Value);
-            command.Parameters.AddWithValue("@CurrencyPair",     (object?)request.CurrencyPair     ?? DBNull.Value);
-            command.Parameters.AddWithValue("@PutOrCall",        (object?)request.PutOrCall        ?? DBNull.Value);
-            command.Parameters.AddWithValue("@Tenor",            (object?)request.Tenor            ?? DBNull.Value);
-            command.Parameters.AddWithValue("@ExpiryDate",       (object?)request.ExpiryDate       ?? DBNull.Value);
-            command.Parameters.AddWithValue("@Cut",              (object?)request.Cut              ?? DBNull.Value);
-            command.Parameters.AddWithValue("@StrikePrice",      (object?)request.StrikePrice      ?? DBNull.Value);
-            command.Parameters.AddWithValue("@LegOrderQty",      (object?)request.LegOrderQty      ?? DBNull.Value);
+            using var command = new MySqlCommand(sql, connection);
+            command.Parameters.AddWithValue("@SessionKey", request.SessionKey);
+            command.Parameters.AddWithValue("@QuoteReqId", (object?)request.QuoteReqId ?? DBNull.Value);
+            command.Parameters.AddWithValue("@SecurityId", (object?)request.SecurityId ?? DBNull.Value);
+            command.Parameters.AddWithValue("@Symbol", (object?)request.Symbol ?? DBNull.Value);
+            command.Parameters.AddWithValue("@Product", (object?)request.Product ?? DBNull.Value);
+            command.Parameters.AddWithValue("@QuoteStyle", (object?)request.QuoteStyle ?? DBNull.Value);
+            command.Parameters.AddWithValue("@DeltaStyle", (object?)request.DeltaStyle ?? DBNull.Value);
+            command.Parameters.AddWithValue("@StrategyType", (object?)request.StrategyType ?? DBNull.Value);
+            command.Parameters.AddWithValue("@CurrencyPair", (object?)request.CurrencyPair ?? DBNull.Value);
+            command.Parameters.AddWithValue("@PutOrCall", (object?)request.PutOrCall ?? DBNull.Value);
+            command.Parameters.AddWithValue("@Tenor", (object?)request.Tenor ?? DBNull.Value);
+            command.Parameters.AddWithValue("@ExpiryDate", (object?)request.ExpiryDate ?? DBNull.Value);
+            command.Parameters.AddWithValue("@Cut", (object?)request.Cut ?? DBNull.Value);
+            command.Parameters.AddWithValue("@StrikePrice", (object?)request.StrikePrice ?? DBNull.Value);
+            command.Parameters.AddWithValue("@LegOrderQty", (object?)request.LegOrderQty ?? DBNull.Value);
             command.Parameters.AddWithValue("@NotionalCurrency", (object?)request.NotionalCurrency ?? DBNull.Value);
-            command.Parameters.AddWithValue("@LegSide",          (object?)request.LegSide          ?? DBNull.Value);
-            command.Parameters.AddWithValue("@PremiumCurrency",  (object?)request.PremiumCurrency  ?? DBNull.Value);
-            command.Parameters.AddWithValue("@RawPayload",       request.RawPayload);
-            command.Parameters.AddWithValue("@ReceivedUtc",      request.ReceivedUtc);
+            command.Parameters.AddWithValue("@LegSide", (object?)request.LegSide ?? DBNull.Value);
+            command.Parameters.AddWithValue("@PremiumCurrency", (object?)request.PremiumCurrency ?? DBNull.Value);
+            command.Parameters.AddWithValue("@RawPayload", request.RawPayload);
+            command.Parameters.AddWithValue("@ReceivedUtc", request.ReceivedUtc);
 
             return Convert.ToInt64(await command.ExecuteScalarAsync());
         }

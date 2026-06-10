@@ -101,7 +101,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     try
                     {
                         _logger?.LogInformation("[{SessionKey}] Creating SSL tunnel...", config.SessionKey);
-                        
+
                         var tunnel = new SSLTunnelProxy(
                             config.SessionKey,
                             config.SslRemoteHost,
@@ -118,10 +118,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogError(ex, "[{SessionKey}] FAILED to start SSL tunnel: {Message}", 
+                        _logger?.LogError(ex, "[{SessionKey}] FAILED to start SSL tunnel: {Message}",
                             config.SessionKey, ex.Message);
 
-                        // Cleanup tunnels on error
                         foreach (var t in _sslTunnels.Values)
                         {
                             t.Dispose();
@@ -175,7 +174,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _sessionIdMap[config.SessionKey] = sessionId;
                 _sessionAutoStart[config.SessionKey] = config.IsEnabled;
 
-                // Lägg till credentials om password ELLER username finns
                 if (!string.IsNullOrEmpty(config.LogonUsername) || !string.IsNullOrEmpty(config.Password))
                 {
                     sessionCredentials[config.SessionKey] = (config.LogonUsername ?? string.Empty, config.Password ?? string.Empty);
@@ -187,13 +185,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
                     config.SessionKey, sessionId, config.IsEnabled);
             }
 
-            // Pass FxTradeHub services AND credentials to QuickFixApplication
             var disabledSessionKeys = configList
                 .Where(c => !c.IsEnabled)
                 .Select(c => c.SessionKey)
                 .ToList();
 
-            // Skapa QuickFixSender och koppla till proxy nu när sessionIdMap finns
             if (_senderProxy != null)
             {
                 var sender = new QuickFixSender(
@@ -205,6 +201,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _logger?.LogInformation("QuickFixSender initialized and proxy connected");
             }
 
+            // FIX 1: lägg till _pushNotification som sista argument
             _application = new QuickFixApplication(
                 _sessionKeyMap,
                 sessionCredentials,
@@ -213,10 +210,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 disabledSessionKeys,
                 _securityListService,
                 _mdOrchestrator,
-                null,                    // mdSubscriber — hanteras via proxy
+                null,
                 _marketDataService,
                 _quoteRequestService,
-                _heartbeatNotifier);
+                _heartbeatNotifier,
+                _pushNotification);
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
             _application.MessageSent += OnMessageSent;
@@ -224,11 +222,16 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _application.ErrorOccurred += OnErrorOccurred;
 
             var storeFactory = new global::QuickFix.FileStoreFactory(_settings);
-            var logFactory     = new FxFixGateway.Infrastructure.Logging.RollingFixLogFactory(
-                                     basePath:         "log",
-                                     maxFileSizeBytes: 20 * 1024 * 1024,   // 20 MB per fil
-                                     retainedDays:     7);                  // Behåll 7 dagars audit-loggar
-            var messageFactory = new LenientMessageFactory();  // ← var: DefaultMessageFactory()    //TODO: KOLLA DETTA!!!
+            var logFactory = new FxFixGateway.Infrastructure.Logging.RollingFixLogFactory(
+                                   basePath: "log",
+                                   maxFileSizeBytes: 20 * 1024 * 1024,
+                                   retainedDays: 7);
+
+            // FIX 2: inaktivera system proxy — QuickFix 1.10.0 försöker annars tunnla via corporate proxy
+            System.Net.WebRequest.DefaultWebProxy = null;
+
+            // FIX 3: DefaultMessageFactory istället för LenientMessageFactory (som orsakade StackOverflow)
+            var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
             _logger?.LogInformation("Creating SocketInitiator...");
             _initiator = new global::QuickFix.Transport.SocketInitiator(
@@ -238,7 +241,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 logFactory,
                 messageFactory);
 
-            // Starta initiator (nätverkshantering)
             _logger?.LogInformation("Starting SocketInitiator...");
             try
             {
@@ -257,10 +259,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 throw;
             }
 
-            // Vänta lite så sessioner hinner skapas
             await Task.Delay(500);
 
-            // Kontrollera varje session - auto-start eller manuell
             foreach (var kvp in _sessionIdMap)
             {
                 var sessionKey = kvp.Key;

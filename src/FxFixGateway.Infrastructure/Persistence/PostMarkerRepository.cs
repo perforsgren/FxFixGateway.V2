@@ -81,10 +81,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@Status", status);
                 command.Parameters.AddWithValue("@UpdatedUtc", updatedUtc);
                 command.Parameters.AddWithValue("@TradeId", tradeId);
@@ -111,10 +111,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@StpTradeId", tradeId);
                 command.Parameters.AddWithValue("@TimestampUtc", DateTime.UtcNow);
                 command.Parameters.AddWithValue("@EventType", eventType);

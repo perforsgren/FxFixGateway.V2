@@ -6,7 +6,7 @@ using System.Data;
 namespace FxFixGateway.Infrastructure.Persistence
 {
     /// <summary>
-    /// Läser prenumerationskonfiguration från fix_config_prod.market_subscriptions.
+    /// LÃ¤ser prenumerationskonfiguration frÃ¥n fix_config_prod.market_subscriptions.
     /// </summary>
     public class MarketSubscriptionRepository : IMarketSubscriptionRepository
     {
@@ -33,20 +33,20 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
 
                 while (await reader.ReadAsync())
                 {
                     result.Add(new MarketSubscriptionFilter(
-                        sessionKey:   reader.GetString("session_key"),
+                        sessionKey: reader.GetString("session_key"),
                         currencyPair: reader.GetString("currency_pair"),
-                        product:      reader.GetInt32("product")));
+                        product: reader.GetInt32("product")));
                 }
             }
             catch (MySqlException ex)

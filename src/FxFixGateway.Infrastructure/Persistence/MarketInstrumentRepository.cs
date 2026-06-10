@@ -52,26 +52,26 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
-                command.Parameters.AddWithValue("@SessionKey",   instrument.SessionKey);
-                command.Parameters.AddWithValue("@SecurityId",   instrument.SecurityId);
-                command.Parameters.AddWithValue("@Symbol",       (object?)instrument.Symbol       ?? DBNull.Value);
+                using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@SessionKey", instrument.SessionKey);
+                command.Parameters.AddWithValue("@SecurityId", instrument.SecurityId);
+                command.Parameters.AddWithValue("@Symbol", (object?)instrument.Symbol ?? DBNull.Value);
                 command.Parameters.AddWithValue("@CurrencyPair", (object?)instrument.CurrencyPair ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Product",      (object?)instrument.Product      ?? DBNull.Value);
-                command.Parameters.AddWithValue("@SecurityReqId",(object?)instrument.SecurityReqId?? DBNull.Value);
-                command.Parameters.AddWithValue("@Tenor",        (object?)instrument.Tenor        ?? DBNull.Value);
-                command.Parameters.AddWithValue("@ExpiryDate",   (object?)instrument.ExpiryDate   ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Cut",          (object?)instrument.Cut          ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Strategy",     (object?)instrument.Strategy     ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Delta",        (object?)instrument.Delta        ?? DBNull.Value);
-                command.Parameters.AddWithValue("@Strike",       (object?)instrument.Strike       ?? DBNull.Value);
-                command.Parameters.AddWithValue("@QuoteStyle",   (object?)instrument.QuoteStyle   ?? DBNull.Value);
-                command.Parameters.AddWithValue("@DeltaStyle",   (object?)instrument.DeltaStyle   ?? DBNull.Value);
-                command.Parameters.AddWithValue("@PremiumCcy",   (object?)instrument.PremiumCcy   ?? DBNull.Value);
-                command.Parameters.AddWithValue("@AmountCcy",    (object?)instrument.AmountCcy    ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Product", (object?)instrument.Product ?? DBNull.Value);
+                command.Parameters.AddWithValue("@SecurityReqId", (object?)instrument.SecurityReqId ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Tenor", (object?)instrument.Tenor ?? DBNull.Value);
+                command.Parameters.AddWithValue("@ExpiryDate", (object?)instrument.ExpiryDate ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Cut", (object?)instrument.Cut ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Strategy", (object?)instrument.Strategy ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Delta", (object?)instrument.Delta ?? DBNull.Value);
+                command.Parameters.AddWithValue("@Strike", (object?)instrument.Strike ?? DBNull.Value);
+                command.Parameters.AddWithValue("@QuoteStyle", (object?)instrument.QuoteStyle ?? DBNull.Value);
+                command.Parameters.AddWithValue("@DeltaStyle", (object?)instrument.DeltaStyle ?? DBNull.Value);
+                command.Parameters.AddWithValue("@PremiumCcy", (object?)instrument.PremiumCcy ?? DBNull.Value);
+                command.Parameters.AddWithValue("@AmountCcy", (object?)instrument.AmountCcy ?? DBNull.Value);
                 command.Parameters.AddWithValue("@DiscoveredUtc", instrument.DiscoveredUtc);
 
                 await command.ExecuteNonQueryAsync();
@@ -105,15 +105,15 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
-                command.Parameters.AddWithValue("@SessionKey",   sessionKey);
+                using var command = new MySqlCommand(sql, connection);
+                command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@CurrencyPair", currencyPair);
-                command.Parameters.AddWithValue("@Product",      product);
+                command.Parameters.AddWithValue("@Product", product);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
                 while (await reader.ReadAsync())
                     result.Add(MapRow(reader));
             }
@@ -145,10 +145,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 for (int i = 0; i < ids.Count; i++)
                     command.Parameters.AddWithValue(paramNames[i], ids[i]);
@@ -181,14 +181,14 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 command.Parameters.AddWithValue("@SessionKey", sessionKey);
                 command.Parameters.AddWithValue("@SecurityId", securityId);
 
-                await using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
+                using var reader = await command.ExecuteReaderAsync(CommandBehavior.CloseConnection);
                 if (await reader.ReadAsync())
                     return MapRow(reader);
 
@@ -210,10 +210,10 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             try
             {
-                await using var connection = new MySqlConnection(_connectionString);
+                using var connection = new MySqlConnection(_connectionString);
                 await connection.OpenAsync();
 
-                await using var command = new MySqlCommand(sql, connection);
+                using var command = new MySqlCommand(sql, connection);
                 using var reader = await command.ExecuteReaderAsync();
 
                 while (await reader.ReadAsync())
@@ -239,26 +239,26 @@ namespace FxFixGateway.Infrastructure.Persistence
 
         private static MarketInstrument MapRow(MySqlDataReader reader) => new()
         {
-            Id            = reader.GetInt64("id"),
-            SessionKey    = reader.GetString("session_key"),
-            SecurityId    = reader.GetString("security_id"),
-            Symbol        = reader.IsDBNull(reader.GetOrdinal("symbol"))         ? null : reader.GetString("symbol"),
-            CurrencyPair  = reader.IsDBNull(reader.GetOrdinal("currency_pair"))  ? null : reader.GetString("currency_pair"),
-            Product       = reader.IsDBNull(reader.GetOrdinal("product"))        ? null : reader.GetInt32("product"),
-            SecurityReqId = reader.IsDBNull(reader.GetOrdinal("security_req_id"))? null : reader.GetString("security_req_id"),
-            IsSubscribed  = reader.GetBoolean("is_subscribed"),
+            Id = reader.GetInt64("id"),
+            SessionKey = reader.GetString("session_key"),
+            SecurityId = reader.GetString("security_id"),
+            Symbol = reader.IsDBNull(reader.GetOrdinal("symbol")) ? null : reader.GetString("symbol"),
+            CurrencyPair = reader.IsDBNull(reader.GetOrdinal("currency_pair")) ? null : reader.GetString("currency_pair"),
+            Product = reader.IsDBNull(reader.GetOrdinal("product")) ? null : reader.GetInt32("product"),
+            SecurityReqId = reader.IsDBNull(reader.GetOrdinal("security_req_id")) ? null : reader.GetString("security_req_id"),
+            IsSubscribed = reader.GetBoolean("is_subscribed"),
             DiscoveredUtc = reader.GetDateTime("discovered_utc"),
-            UpdatedUtc    = reader.GetDateTime("updated_utc"),
-            Tenor         = reader.IsDBNull(reader.GetOrdinal("tenor"))           ? null : reader.GetString("tenor"),
-            ExpiryDate    = reader.IsDBNull(reader.GetOrdinal("expiry_date"))     ? null : reader.GetDateTime("expiry_date"),
-            Cut           = reader.IsDBNull(reader.GetOrdinal("cut"))             ? null : reader.GetString("cut"),
-            Strategy      = reader.IsDBNull(reader.GetOrdinal("strategy"))        ? null : reader.GetString("strategy"),
-            Delta         = reader.IsDBNull(reader.GetOrdinal("delta"))           ? null : reader.GetString("delta"),
-            Strike        = reader.IsDBNull(reader.GetOrdinal("strike"))          ? null : reader.GetString("strike"),
-            QuoteStyle    = reader.IsDBNull(reader.GetOrdinal("quote_style"))     ? null : reader.GetString("quote_style"),
-            DeltaStyle    = reader.IsDBNull(reader.GetOrdinal("delta_style"))     ? null : reader.GetString("delta_style"),
-            PremiumCcy    = reader.IsDBNull(reader.GetOrdinal("premium_ccy"))     ? null : reader.GetString("premium_ccy"),
-            AmountCcy     = reader.IsDBNull(reader.GetOrdinal("amount_ccy"))      ? null : reader.GetString("amount_ccy"),
+            UpdatedUtc = reader.GetDateTime("updated_utc"),
+            Tenor = reader.IsDBNull(reader.GetOrdinal("tenor")) ? null : reader.GetString("tenor"),
+            ExpiryDate = reader.IsDBNull(reader.GetOrdinal("expiry_date")) ? null : reader.GetDateTime("expiry_date"),
+            Cut = reader.IsDBNull(reader.GetOrdinal("cut")) ? null : reader.GetString("cut"),
+            Strategy = reader.IsDBNull(reader.GetOrdinal("strategy")) ? null : reader.GetString("strategy"),
+            Delta = reader.IsDBNull(reader.GetOrdinal("delta")) ? null : reader.GetString("delta"),
+            Strike = reader.IsDBNull(reader.GetOrdinal("strike")) ? null : reader.GetString("strike"),
+            QuoteStyle = reader.IsDBNull(reader.GetOrdinal("quote_style")) ? null : reader.GetString("quote_style"),
+            DeltaStyle = reader.IsDBNull(reader.GetOrdinal("delta_style")) ? null : reader.GetString("delta_style"),
+            PremiumCcy = reader.IsDBNull(reader.GetOrdinal("premium_ccy")) ? null : reader.GetString("premium_ccy"),
+            AmountCcy = reader.IsDBNull(reader.GetOrdinal("amount_ccy")) ? null : reader.GetString("amount_ccy"),
         };
     }
 }
