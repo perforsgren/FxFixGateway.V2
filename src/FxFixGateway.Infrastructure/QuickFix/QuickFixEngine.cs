@@ -201,7 +201,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _logger?.LogInformation("QuickFixSender initialized and proxy connected");
             }
 
-            // FIX 1: lägg till _pushNotification som sista argument
             _application = new QuickFixApplication(
                 _sessionKeyMap,
                 sessionCredentials,
@@ -227,10 +226,12 @@ namespace FxFixGateway.Infrastructure.QuickFix
                                    maxFileSizeBytes: 20 * 1024 * 1024,
                                    retainedDays: 7);
 
-            // FIX 2: inaktivera system proxy — QuickFix 1.10.0 försöker annars tunnla via corporate proxy
-            System.Net.WebRequest.DefaultWebProxy = null;
+            // Sätt system proxy med Windows Kerberos-credentials — QuickFix 1.10.0 behöver
+            // autentisering mot corporate proxy (proxyvipkrb-se.sbcore.net) för externa anslutningar.
+            var systemProxy = System.Net.WebRequest.GetSystemWebProxy();
+            systemProxy.Credentials = System.Net.CredentialCache.DefaultNetworkCredentials;
+            System.Net.WebRequest.DefaultWebProxy = systemProxy;
 
-            // FIX 3: DefaultMessageFactory istället för LenientMessageFactory (som orsakade StackOverflow)
             var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
             _logger?.LogInformation("Creating SocketInitiator...");
