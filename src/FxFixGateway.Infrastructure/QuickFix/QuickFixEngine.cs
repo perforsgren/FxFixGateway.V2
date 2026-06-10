@@ -15,60 +15,60 @@ namespace FxFixGateway.Infrastructure.QuickFix
 {
     public class QuickFixEngine : IFixEngine, IDisposable
     {
-        private readonly ILogger<QuickFixEngine>?        _logger;
-        private readonly string                          _dataDictionaryPath;
-        private readonly IMessageInService?              _messageInService;
-        private readonly IMessageInParserOrchestrator?   _orchestrator;
-        private readonly ISecurityListService?           _securityListService;
-        private readonly IMarketDataOrchestrator?        _mdOrchestrator;
-        private readonly QuickFixSenderProxy?            _senderProxy;
-        private readonly IMarketDataService?             _marketDataService;
-        private readonly IQuoteRequestService?           _quoteRequestService;
-        private readonly ISessionHeartbeatNotifier?      _heartbeatNotifier;
-        private readonly IPushNotificationService?         _pushNotification;
+        private readonly ILogger<QuickFixEngine>? _logger;
+        private readonly string _dataDictionaryPath;
+        private readonly IMessageInService? _messageInService;
+        private readonly IMessageInParserOrchestrator? _orchestrator;
+        private readonly ISecurityListService? _securityListService;
+        private readonly IMarketDataOrchestrator? _mdOrchestrator;
+        private readonly QuickFixSenderProxy? _senderProxy;
+        private readonly IMarketDataService? _marketDataService;
+        private readonly IQuoteRequestService? _quoteRequestService;
+        private readonly ISessionHeartbeatNotifier? _heartbeatNotifier;
+        private readonly IPushNotificationService? _pushNotification;
 
         private readonly Dictionary<string, SSLTunnelProxy> _sslTunnels = new();
 
         private QF.Transport.SocketInitiator? _initiator;
-        private QuickFixApplication?          _application;
-        private QF.SessionSettings?           _settings;
+        private QuickFixApplication? _application;
+        private QF.SessionSettings? _settings;
         private Dictionary<QF.SessionID, string>? _sessionKeyMap;
         private Dictionary<string, QF.SessionID>? _sessionIdMap;
-        private Dictionary<string, bool>?         _sessionAutoStart;
+        private Dictionary<string, bool>? _sessionAutoStart;
 
         private bool _initialized;
         private bool _running;
 
         public event EventHandler<SessionStatusChangedEvent>? StatusChanged;
-        public event EventHandler<MessageReceivedEvent>?      MessageReceived;
-        public event EventHandler<MessageSentEvent>?          MessageSent;
-        public event EventHandler<HeartbeatReceivedEvent>?    HeartbeatReceived;
-        public event EventHandler<ErrorOccurredEvent>?        ErrorOccurred;
+        public event EventHandler<MessageReceivedEvent>? MessageReceived;
+        public event EventHandler<MessageSentEvent>? MessageSent;
+        public event EventHandler<HeartbeatReceivedEvent>? HeartbeatReceived;
+        public event EventHandler<ErrorOccurredEvent>? ErrorOccurred;
 
         public QuickFixEngine(
-            ILogger<QuickFixEngine>? logger                    = null,
-            string? dataDictionaryPath                         = null,
-            IMessageInService? messageInService                = null,
-            IMessageInParserOrchestrator? orchestrator         = null,
-            ISecurityListService? securityListService          = null,
-            IMarketDataOrchestrator? mdOrchestrator            = null,
-            QuickFixSenderProxy? senderProxy                   = null,
-            IMarketDataService? marketDataService              = null,
-            IQuoteRequestService? quoteRequestService          = null,
-            ISessionHeartbeatNotifier? heartbeatNotifier       = null,
-            IPushNotificationService? pushNotification         = null)
+            ILogger<QuickFixEngine>? logger = null,
+            string? dataDictionaryPath = null,
+            IMessageInService? messageInService = null,
+            IMessageInParserOrchestrator? orchestrator = null,
+            ISecurityListService? securityListService = null,
+            IMarketDataOrchestrator? mdOrchestrator = null,
+            QuickFixSenderProxy? senderProxy = null,
+            IMarketDataService? marketDataService = null,
+            IQuoteRequestService? quoteRequestService = null,
+            ISessionHeartbeatNotifier? heartbeatNotifier = null,
+            IPushNotificationService? pushNotification = null)
         {
-            _logger              = logger;
-            _dataDictionaryPath  = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
-            _messageInService    = messageInService;
-            _orchestrator        = orchestrator;
+            _logger = logger;
+            _dataDictionaryPath = dataDictionaryPath ?? GetDefaultDataDictionaryPath();
+            _messageInService = messageInService;
+            _orchestrator = orchestrator;
             _securityListService = securityListService;
-            _mdOrchestrator      = mdOrchestrator;
-            _senderProxy         = senderProxy;
-            _marketDataService   = marketDataService;
+            _mdOrchestrator = mdOrchestrator;
+            _senderProxy = senderProxy;
+            _marketDataService = marketDataService;
             _quoteRequestService = quoteRequestService;
-            _heartbeatNotifier   = heartbeatNotifier;
-            _pushNotification    = pushNotification;
+            _heartbeatNotifier = heartbeatNotifier;
+            _pushNotification = pushNotification;
         }
 
         public async Task InitializeAsync(IEnumerable<SessionConfiguration> sessions)
@@ -214,6 +214,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _quoteRequestService,
                 _heartbeatNotifier,
                 _pushNotification);
+
             _application.StatusChanged += OnStatusChanged;
             _application.MessageReceived += OnMessageReceived;
             _application.MessageSent += OnMessageSent;
@@ -226,11 +227,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
                                    maxFileSizeBytes: 20 * 1024 * 1024,
                                    retainedDays: 7);
 
-            // Sätt system proxy med Windows Kerberos-credentials — QuickFix 1.10.0 behöver
-            // autentisering mot corporate proxy (proxyvipkrb-se.sbcore.net) för externa anslutningar.
-            var systemProxy = System.Net.WebRequest.GetSystemWebProxy();
-            systemProxy.Credentials = System.Net.CredentialCache.DefaultNetworkCredentials;
-            System.Net.WebRequest.DefaultWebProxy = systemProxy;
+            // QuickFix 1.10.0 läser HTTP_PROXY/HTTPS_PROXY från process-environment innan
+            // den faller tillbaka på WebRequest.DefaultWebProxy. Töm dem explicit så att
+            // direktanslutning används (samma beteende som QuickFix 1.14.0 på net6.0).
+            Environment.SetEnvironmentVariable("HTTP_PROXY", "", EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("HTTPS_PROXY", "", EnvironmentVariableTarget.Process);
+            Environment.SetEnvironmentVariable("ALL_PROXY", "", EnvironmentVariableTarget.Process);
+            System.Net.WebRequest.DefaultWebProxy = new System.Net.WebProxy();
 
             var messageFactory = new global::QuickFix.DefaultMessageFactory();
 
@@ -363,7 +366,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 sessionKey,
                 Domain.Enums.SessionStatus.Disconnecting,
                 Domain.Enums.SessionStatus.Stopped));
-            
+
             _logger?.LogInformation("[{SessionKey}] Session stopped", sessionKey);
         }
 
@@ -415,11 +418,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 _logger?.LogInformation("Stopping SocketInitiator...");
 
-                // Stop() är synkron och blockerar tills QuickFIX skickat Logout till motparter
                 _initiator.Stop();
                 _running = false;
 
-                // Vänta på att socket-trådar faktiskt avslutas (foreground threads)
                 var deadline = DateTime.UtcNow.AddSeconds(4);
                 while (!_initiator.IsStopped && DateTime.UtcNow < deadline)
                     await Task.Delay(100).ConfigureAwait(false);
@@ -427,12 +428,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 if (!_initiator.IsStopped)
                     _logger?.LogWarning("SocketInitiator did not fully stop — forcing dispose");
 
-                // Dispose frigör socket-handles och avslutar interna trådar
                 _initiator.Dispose();
                 _initiator = null;
             }
 
-            // Stäng SSL-tunnlar
             _logger?.LogInformation("Stopping {Count} SSL tunnels...", _sslTunnels.Count);
             foreach (var tunnel in _sslTunnels.Values)
                 tunnel.Dispose();
@@ -450,11 +449,11 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             if (_application != null)
             {
-                _application.StatusChanged   -= OnStatusChanged;
+                _application.StatusChanged -= OnStatusChanged;
                 _application.MessageReceived -= OnMessageReceived;
-                _application.MessageSent     -= OnMessageSent;
+                _application.MessageSent -= OnMessageSent;
                 _application.HeartbeatReceived -= OnHeartbeatReceived;
-                _application.ErrorOccurred   -= OnErrorOccurred;
+                _application.ErrorOccurred -= OnErrorOccurred;
             }
 
             _initiator?.Dispose();
@@ -464,10 +463,9 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 tunnel.Dispose();
             _sslTunnels.Clear();
 
-            _running     = false;
+            _running = false;
             _initialized = false;
         }
-
 
         private void OnStatusChanged(object? sender, SessionStatusChangedEvent e) => StatusChanged?.Invoke(this, e);
         private void OnMessageReceived(object? sender, MessageReceivedEvent e) => MessageReceived?.Invoke(this, e);

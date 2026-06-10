@@ -81,6 +81,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             sb.AppendLine($"EndTime={firstConfig.EndTime:hh\\:mm\\:ss}");
             sb.AppendLine($"FileStorePath={_fileStorePath}");
             sb.AppendLine($"FileLogPath={_fileLogPath}");
+            sb.AppendLine("SocketIgnoreProxy=Y");
             sb.AppendLine();
 
             // Validation - stäng av strikt validering
@@ -110,7 +111,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 {
                     sb.AppendLine("UseDataDictionary=Y");
                     sb.AppendLine($"DataDictionary={dictionaryFile}");
-                    sb.AppendLine("ValidateIncomingMessage=N"); // ← tillåt custom/ogiltiga värden från servern
+                    sb.AppendLine("ValidateIncomingMessage=N");
                 }
                 else
                 {
