@@ -107,7 +107,7 @@ namespace FxFixGateway.Application.BackgroundServices
                 _logger.LogInformation("[Heartbeat] Waiting for {Count} OFFLINE write(s) to complete...", pending.Length);
                 try
                 {
-                    await Task.WhenAll(pending).WaitAsync(OfflineTimeout, cancellationToken);
+                    await Task.WhenAny(Task.WhenAll(pending), Task.Delay(OfflineTimeout, cancellationToken));
                     _logger.LogInformation("[Heartbeat] All OFFLINE writes completed.");
                 }
                 catch (Exception ex)

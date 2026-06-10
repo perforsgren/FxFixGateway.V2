@@ -27,7 +27,8 @@ namespace FxFixGateway.Application.BackgroundServices
             _logger.LogInformation("FixEngineHostedService: stopping FIX engine...");
             try
             {
-                await _fixEngine.ShutdownAsync().WaitAsync(TimeSpan.FromSeconds(8), cancellationToken);
+                var shutdownTask = _fixEngine.ShutdownAsync();
+                await Task.WhenAny(shutdownTask, Task.Delay(TimeSpan.FromSeconds(8), cancellationToken));
                 _logger.LogInformation("FixEngineHostedService: FIX engine stopped.");
             }
             catch (Exception ex)
