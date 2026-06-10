@@ -1,4 +1,4 @@
-﻿using FxFixGateway.Domain.Events;
+using FxFixGateway.Domain.Events;
 using FxFixGateway.Domain.Interfaces;
 using FxFixGateway.Domain.ValueObjects;
 using Microsoft.Extensions.Logging;
@@ -223,7 +223,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _application.HeartbeatReceived += OnHeartbeatReceived;
             _application.ErrorOccurred += OnErrorOccurred;
 
-            var storeFactory   = new global::QuickFix.Store.FileStoreFactory(_settings);
+            var storeFactory = new global::QuickFix.FileStoreFactory(_settings);
             var logFactory     = new FxFixGateway.Infrastructure.Logging.RollingFixLogFactory(
                                      basePath:         "log",
                                      maxFileSizeBytes: 20 * 1024 * 1024,   // 20 MB per fil

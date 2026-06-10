@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.Security;
@@ -98,7 +98,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                     try
                     {
-                        localClient = await _listener!.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                        localClient = await _listener!.AcceptTcpClientAsync().ConfigureAwait(false);
                         Interlocked.Increment(ref _activeConnections);
                         
                         _logger?.LogDebug("[{SessionKey}] SSL Tunnel: QuickFIX connected (active: {Count})", 
@@ -132,8 +132,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private async Task HandleClientAsync(TcpClient localClient, CancellationToken cancellationToken)
         {
-            var connectionId = Guid.NewGuid().ToString("N")[..8];
-            
+            var connectionId = Guid.NewGuid().ToString("N").Substring(0, 8);
+
             _logger?.LogDebug("[{SessionKey}][{ConnId}] Connecting to remote {Host}:{Port}...", 
                 _sessionKey, connectionId, _remoteHost, _remotePort);
 
@@ -145,12 +145,14 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 {
                     // 1. Connect to remote
                     remoteClient = new TcpClient();
-                    
-                    using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    connectCts.CancelAfter(TimeSpan.FromSeconds(30));
-                    
-                    await remoteClient.ConnectAsync(_remoteHost, _remotePort, connectCts.Token).ConfigureAwait(false);
-                    
+
+                    var connectTask = remoteClient.ConnectAsync(_remoteHost, _remotePort);
+                    var timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), cancellationToken);
+                    var completed = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
+                    if (completed == timeoutTask)
+                        throw new TimeoutException($"Connection to {_remoteHost}:{_remotePort} timed out");
+                    await connectTask;
+
                     _logger?.LogDebug("[{SessionKey}][{ConnId}] TCP connected, starting SSL handshake...", 
                         _sessionKey, connectionId);
 
@@ -162,12 +164,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         userCertificateValidationCallback: ValidateServerCertificate))
                     {
                         await sslStream.AuthenticateAsClientAsync(
-                            new SslClientAuthenticationOptions
-                            {
-                                TargetHost = _sniHost,
-                                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                                CertificateRevocationCheckMode = X509RevocationMode.NoCheck
-                            }, cancellationToken).ConfigureAwait(false);
+                            _sniHost,
+                            null,
+                            SslProtocols.Tls12,
+                            checkCertificateRevocation: false).ConfigureAwait(false);
 
                         _logger?.LogInformation(
                             "[{SessionKey}][{ConnId}] SSL tunnel established (Protocol: {Protocol}, Cipher: {Cipher})",
@@ -225,7 +225,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    int bytesRead = await source.ReadAsync(buffer.AsMemory(0, buffer.Length), cancellationToken)
+                    int bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)
                                                 .ConfigureAwait(false);
                     if (bytesRead <= 0)
                     {
@@ -234,7 +234,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
                         break;
                     }
 
-                    await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken)
+                    await destination.WriteAsync(buffer, 0, bytesRead, cancellationToken)
                                       .ConfigureAwait(false);
                     await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
                     

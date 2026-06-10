@@ -214,7 +214,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 await connection.OpenAsync();
 
                 await using var command = new MySqlCommand(sql, connection);
-                await using var reader = await command.ExecuteReaderAsync();
+                using var reader = await command.ExecuteReaderAsync();
 
                 while (await reader.ReadAsync())
                 {

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -172,8 +172,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
 
             // 2. Fallback: Använd Fenics-dictionary för kända Fenics-sessions
-            if (config.VenueCode?.Contains("FENICS", StringComparison.OrdinalIgnoreCase) == true ||
-                config.SessionKey?.Contains("FENICS", StringComparison.OrdinalIgnoreCase) == true)
+            if (config.VenueCode?.IndexOf("FENICS", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                config.SessionKey?.IndexOf("FENICS", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 var fenicsDict = FindDictionaryFile("FIX44_Fenics.xml");
                 if (!string.IsNullOrEmpty(fenicsDict))
