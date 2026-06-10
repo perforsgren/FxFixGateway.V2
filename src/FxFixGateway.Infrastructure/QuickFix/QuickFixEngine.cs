@@ -76,6 +76,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
             if (_initialized)
                 throw new InvalidOperationException("QuickFixEngine already initialized");
 
+            // KRITISKT: Rensa proxy så QuickFIX får direct connection.
+            // PostMarker sätter proxyn senare i sin Connect()-metod.
+            System.Net.WebRequest.DefaultWebProxy = null;
+
             var configList = sessions.ToList();
             if (configList.Count == 0)
                 throw new ArgumentException("At least one session configuration required");
