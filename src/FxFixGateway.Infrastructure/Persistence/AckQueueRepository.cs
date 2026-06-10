@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Threading.Tasks;
@@ -307,7 +307,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                 command.Parameters.AddWithValue("@StatusSent", DbAckStatus.AckSent);
                 command.Parameters.AddWithValue("@StatusError", DbAckStatus.AckError);
 
-                await using var reader = await command.ExecuteReaderAsync();
+                using var reader = await command.ExecuteReaderAsync();
 
                 if (await reader.ReadAsync())
                 {

@@ -55,7 +55,7 @@ namespace FxFixGateway.Infrastructure.Persistence
         {
             await using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
-            await using var transaction = await connection.BeginTransactionAsync();
+            using var transaction = await connection.BeginTransactionAsync();
 
             try
             {
@@ -166,7 +166,7 @@ namespace FxFixGateway.Infrastructure.Persistence
 
             await using var connection = new MySqlConnection(_connectionString);
             await connection.OpenAsync();
-            await using var transaction = await connection.BeginTransactionAsync();
+            using var transaction = await connection.BeginTransactionAsync();
 
             try
             {

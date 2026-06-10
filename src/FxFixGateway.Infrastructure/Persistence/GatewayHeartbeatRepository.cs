@@ -82,7 +82,7 @@ namespace FxFixGateway.Infrastructure.Persistence
                     // Exponential back-off: 1s, 2s, 3s, 4s
                     // + jitter (0-500ms) to avoid thundering herd if multiple
                     // gateway instances restart simultaneously.
-                    var jitter = Random.Shared.Next(0, 500);
+                    var jitter = new Random().Next(0, 500);
                     await Task.Delay(
                         TimeSpan.FromSeconds(attempt)
                         .Add(TimeSpan.FromMilliseconds(jitter)));
