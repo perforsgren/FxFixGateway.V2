@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using FxFixGateway.Domain.Interfaces;
 using TTL.PostMarker.Client;
 
@@ -8,6 +9,8 @@ namespace FxFixGateway.Infrastructure.PostMarker
     {
         private readonly Session _inner;
         private bool _disposed;
+
+        private const string ProxyAddress = "http://proxyvip.foreningssparbanken.se:8080";
 
         public PostMarkerSession()
         {
@@ -21,6 +24,14 @@ namespace FxFixGateway.Infrastructure.PostMarker
 
         public void Connect(string username, string password, int reconnectSeconds, bool autoReconnect)
         {
+            // PostMarker kräver proxy men QuickFIX ska köra direct.
+            // App.config har ingen <system.net>-sektion — proxy sätts här precis
+            // innan PostMarker kopplar och gäller sedan för hela processen.
+            WebRequest.DefaultWebProxy = new WebProxy(ProxyAddress)
+            {
+                UseDefaultCredentials = true
+            };
+
             _inner.Connect(username, password, reconnectSeconds, autoReconnect);
         }
 
