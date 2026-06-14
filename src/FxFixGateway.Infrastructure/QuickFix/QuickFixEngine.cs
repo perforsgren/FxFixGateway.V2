@@ -78,7 +78,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
             // KRITISKT: Rensa proxy så QuickFIX får direct connection.
             // PostMarker sätter proxyn senare i sin Connect()-metod.
-            System.Net.WebRequest.DefaultWebProxy = null;
+            //System.Net.WebRequest.DefaultWebProxy = null;
 
             var configList = sessions.ToList();
             if (configList.Count == 0)

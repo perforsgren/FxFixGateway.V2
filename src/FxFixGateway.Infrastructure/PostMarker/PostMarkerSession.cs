@@ -12,6 +12,13 @@ namespace FxFixGateway.Infrastructure.PostMarker
 
         private const string ProxyAddress = "http://proxyvip.foreningssparbanken.se:8080";
 
+        // Regex som matchar alla IPv4-adresser – FIX-servers når vi via IP, PostMarker via hostname.
+        // WebProxy.BypassList matchas mot host-delen av URI:n.
+        private static readonly string[] DirectConnectionBypassList =
+        {
+            @"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$"
+        };
+
         public PostMarkerSession()
         {
             _inner = new Session();
@@ -24,12 +31,12 @@ namespace FxFixGateway.Infrastructure.PostMarker
 
         public void Connect(string username, string password, int reconnectSeconds, bool autoReconnect)
         {
-            // PostMarker kräver proxy men QuickFIX ska köra direct.
-            // App.config har ingen <system.net>-sektion — proxy sätts här precis
-            // innan PostMarker kopplar och gäller sedan för hela processen.
+            // Sätt proxy med bypass för alla IPv4-adresser så att QuickFIX-connections
+            // (194.36.220.26 etc.) går direkt medan PostMarker-hostname proxyas.
             WebRequest.DefaultWebProxy = new WebProxy(ProxyAddress)
             {
-                UseDefaultCredentials = true
+                UseDefaultCredentials = true,
+                BypassList = DirectConnectionBypassList
             };
 
             _inner.Connect(username, password, reconnectSeconds, autoReconnect);
