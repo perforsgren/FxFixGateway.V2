@@ -17,7 +17,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
         private readonly int _remotePort;
         private readonly int _localPort;
         private readonly string _sniHost;
-        private readonly bool _useRemoteSsl;
         private readonly ILogger? _logger;
 
         private TcpListener? _listener;
@@ -32,7 +31,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             int remotePort,
             int localPort,
             string? sniHost = null,
-            bool useRemoteSsl = true,
             ILogger? logger = null)
         {
             _sessionKey = sessionKey ?? throw new ArgumentNullException(nameof(sessionKey));
@@ -40,7 +38,6 @@ namespace FxFixGateway.Infrastructure.QuickFix
             _remotePort = remotePort;
             _localPort = localPort;
             _sniHost = string.IsNullOrWhiteSpace(sniHost) ? remoteHost : sniHost;
-            _useRemoteSsl = useRemoteSsl;
             _logger = logger;
         }
 
@@ -57,15 +54,15 @@ namespace FxFixGateway.Infrastructure.QuickFix
                 _listener.Start();
 
                 _logger?.LogInformation(
-                    "[{SessionKey}] Tunnel STARTED: localhost:{LocalPort} -> {RemoteHost}:{RemotePort} (SSL={UseSsl}, SNI={SniHost})",
-                    _sessionKey, _localPort, _remoteHost, _remotePort, _useRemoteSsl, _sniHost);
+                    "[{SessionKey}] SSL Tunnel STARTED: localhost:{LocalPort} -> {RemoteHost}:{RemotePort} (SNI={SniHost})",
+                    _sessionKey, _localPort, _remoteHost, _remotePort, _sniHost);
 
                 _acceptLoopTask = Task.Run(() => AcceptLoopAsync(_cts.Token));
             }
             catch (SocketException ex)
             {
                 _logger?.LogError(ex,
-                    "[{SessionKey}] Tunnel FAILED TO START on port {LocalPort}: {Message}",
+                    "[{SessionKey}] SSL Tunnel FAILED TO START on port {LocalPort}: {Message}",
                     _sessionKey, _localPort, ex.Message);
                 throw;
             }
@@ -75,13 +72,13 @@ namespace FxFixGateway.Infrastructure.QuickFix
         {
             if (_disposed) return;
 
-            _logger?.LogInformation("[{SessionKey}] Tunnel stopping...", _sessionKey);
+            _logger?.LogInformation("[{SessionKey}] SSL Tunnel stopping...", _sessionKey);
 
             try { _cts?.Cancel(); } catch { }
             try { _listener?.Stop(); } catch { }
             try { _acceptLoopTask?.Wait(TimeSpan.FromSeconds(2)); } catch { }
 
-            _logger?.LogInformation("[{SessionKey}] Tunnel stopped. Active connections: {Count}",
+            _logger?.LogInformation("[{SessionKey}] SSL Tunnel stopped. Active connections: {Count}",
                 _sessionKey, _activeConnections);
 
             _listener = null;
@@ -91,7 +88,7 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
         private async Task AcceptLoopAsync(CancellationToken cancellationToken)
         {
-            _logger?.LogDebug("[{SessionKey}] Tunnel accept loop started", _sessionKey);
+            _logger?.LogDebug("[{SessionKey}] SSL Tunnel accept loop started", _sessionKey);
 
             try
             {
@@ -101,25 +98,28 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                     try
                     {
-                        localClient = await _listener!.AcceptTcpClientAsync(cancellationToken).ConfigureAwait(false);
+                        // .NET Framework 4.8 has no AcceptTcpClientAsync(CancellationToken) overload.
+                        // Cancellation is handled via listener.Stop() in Stop(), which causes the
+                        // pending accept to throw ObjectDisposedException (caught below).
+                        localClient = await _listener!.AcceptTcpClientAsync().ConfigureAwait(false);
                         Interlocked.Increment(ref _activeConnections);
 
-                        _logger?.LogDebug("[{SessionKey}] Tunnel: QuickFIX connected (active: {Count})",
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel: QuickFIX connected (active: {Count})",
                             _sessionKey, _activeConnections);
                     }
                     catch (OperationCanceledException)
                     {
-                        _logger?.LogDebug("[{SessionKey}] Tunnel accept loop cancelled", _sessionKey);
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel accept loop cancelled", _sessionKey);
                         break;
                     }
                     catch (ObjectDisposedException)
                     {
-                        _logger?.LogDebug("[{SessionKey}] Tunnel listener disposed", _sessionKey);
+                        _logger?.LogDebug("[{SessionKey}] SSL Tunnel listener disposed", _sessionKey);
                         break;
                     }
                     catch (Exception ex)
                     {
-                        _logger?.LogWarning(ex, "[{SessionKey}] Tunnel accept error: {Error}",
+                        _logger?.LogWarning(ex, "[{SessionKey}] SSL Tunnel accept error: {Error}",
                             _sessionKey, ex.Message);
                         continue;
                     }
@@ -129,16 +129,17 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
             catch (Exception ex)
             {
-                _logger?.LogError(ex, "[{SessionKey}] Tunnel accept loop terminated unexpectedly", _sessionKey);
+                _logger?.LogError(ex, "[{SessionKey}] SSL Tunnel accept loop terminated unexpectedly", _sessionKey);
             }
         }
 
         private async Task HandleClientAsync(TcpClient localClient, CancellationToken cancellationToken)
         {
+            // .NET Framework 4.8 has no System.Index/System.Range support; use Substring instead.
             var connectionId = Guid.NewGuid().ToString("N").Substring(0, 8);
 
-            _logger?.LogDebug("[{SessionKey}][{ConnId}] Connecting to remote {Host}:{Port} (SSL={UseSsl})...",
-                _sessionKey, connectionId, _remoteHost, _remotePort, _useRemoteSsl);
+            _logger?.LogDebug("[{SessionKey}][{ConnId}] Connecting to remote {Host}:{Port}...",
+                _sessionKey, connectionId, _remoteHost, _remotePort);
 
             using (localClient)
             {
@@ -146,61 +147,59 @@ namespace FxFixGateway.Infrastructure.QuickFix
 
                 try
                 {
+                    // 1. Connect to remote
                     remoteClient = new TcpClient();
 
+                    // .NET Framework 4.8 has no ConnectAsync(host, port, CancellationToken) overload.
+                    // Race the connect against a cancellable timeout instead.
                     using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                    connectCts.CancelAfter(TimeSpan.FromSeconds(30));
+                    Task connectTask = remoteClient.ConnectAsync(_remoteHost, _remotePort);
+                    Task timeoutTask = Task.Delay(TimeSpan.FromSeconds(30), connectCts.Token);
 
-                    await remoteClient.ConnectAsync(_remoteHost, _remotePort, connectCts.Token).ConfigureAwait(false);
+                    Task completedTask = await Task.WhenAny(connectTask, timeoutTask).ConfigureAwait(false);
+                    connectCts.Cancel(); // stop the timeout task if connect finished first
 
-                    _logger?.LogDebug("[{SessionKey}][{ConnId}] TCP connected to remote",
-                        _sessionKey, connectionId);
-
-                    NetworkStream localStream = localClient.GetStream();
-
-                    if (_useRemoteSsl)
+                    if (completedTask != connectTask)
                     {
-                        using (remoteClient)
-                        using (var sslStream = new SslStream(
-                            remoteClient.GetStream(),
-                            leaveInnerStreamOpen: false,
-                            userCertificateValidationCallback: ValidateServerCertificate))
-                        {
-                            await sslStream.AuthenticateAsClientAsync(
-                                new SslClientAuthenticationOptions
-                                {
-                                    TargetHost = _sniHost,
-                                    EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
-                                    CertificateRevocationCheckMode = X509RevocationMode.NoCheck
-                                }, cancellationToken).ConfigureAwait(false);
-
-                            _logger?.LogInformation(
-                                "[{SessionKey}][{ConnId}] SSL tunnel established (Protocol: {Protocol}, Cipher: {Cipher})",
-                                _sessionKey, connectionId, sslStream.SslProtocol, sslStream.CipherAlgorithm);
-
-                            Task t1 = PumpAsync(localStream, sslStream, "QF->Remote", connectionId, cancellationToken);
-                            Task t2 = PumpAsync(sslStream, localStream, "Remote->QF", connectionId, cancellationToken);
-                            await Task.WhenAny(t1, t2).ConfigureAwait(false);
-                        }
-                    }
-                    else
-                    {
-                        using (remoteClient)
-                        {
-                            NetworkStream remoteStream = remoteClient.GetStream();
-
-                            _logger?.LogInformation(
-                                "[{SessionKey}][{ConnId}] Plain TCP tunnel established",
-                                _sessionKey, connectionId);
-
-                            Task t1 = PumpAsync(localStream, remoteStream, "QF->Remote", connectionId, cancellationToken);
-                            Task t2 = PumpAsync(remoteStream, localStream, "Remote->QF", connectionId, cancellationToken);
-                            await Task.WhenAny(t1, t2).ConfigureAwait(false);
-                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                        throw new TimeoutException($"Connect to {_remoteHost}:{_remotePort} timed out after 30s.");
                     }
 
-                    _logger?.LogDebug("[{SessionKey}][{ConnId}] Connection closed normally",
+                    await connectTask.ConfigureAwait(false); // propagate connect failures
+
+                    _logger?.LogDebug("[{SessionKey}][{ConnId}] TCP connected, starting SSL handshake...",
                         _sessionKey, connectionId);
+
+                    // 2. SSL handshake
+                    using (remoteClient)
+                    using (var sslStream = new SslStream(
+                        remoteClient.GetStream(),
+                        leaveInnerStreamOpen: false,
+                        userCertificateValidationCallback: ValidateServerCertificate))
+                    {
+                        // .NET Framework 4.8 has no SslClientAuthenticationOptions overload;
+                        // use the classic AuthenticateAsClientAsync signature instead.
+                        await sslStream.AuthenticateAsClientAsync(
+                            _sniHost,
+                            clientCertificates: null,
+                            enabledSslProtocols: SslProtocols.Tls12 | SslProtocols.Tls13,
+                            checkCertificateRevocation: false).ConfigureAwait(false);
+
+                        _logger?.LogInformation(
+                            "[{SessionKey}][{ConnId}] SSL tunnel established (Protocol: {Protocol}, Cipher: {Cipher})",
+                            _sessionKey, connectionId, sslStream.SslProtocol, sslStream.CipherAlgorithm);
+
+                        // 3. Start pumping data
+                        NetworkStream localStream = localClient.GetStream();
+
+                        Task t1 = PumpAsync(localStream, sslStream, "QuickFIX->Remote", connectionId, cancellationToken);
+                        Task t2 = PumpAsync(sslStream, localStream, "Remote->QuickFIX", connectionId, cancellationToken);
+
+                        await Task.WhenAny(t1, t2).ConfigureAwait(false);
+
+                        _logger?.LogDebug("[{SessionKey}][{ConnId}] Connection closed normally",
+                            _sessionKey, connectionId);
+                    }
                 }
                 catch (SocketException ex)
                 {
@@ -242,6 +241,8 @@ namespace FxFixGateway.Infrastructure.QuickFix
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    // .NET Framework 4.8 Stream has no ReadAsync(Memory<byte>, ...) overload;
+                    // use the classic byte[]-offset-count overload instead.
                     int bytesRead = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)
                                                 .ConfigureAwait(false);
                     if (bytesRead <= 0)
@@ -280,10 +281,10 @@ namespace FxFixGateway.Infrastructure.QuickFix
             }
 
             _logger?.LogWarning(
-                "[{SessionKey}] SSL certificate warning: {Errors} (Subject: {Subject}) - Accepting anyway",
+                "[{SessionKey}] SSL certificate warning: {Errors} (Subject: {Subject}) - Accepting anyway for DEV/STAGE",
                 _sessionKey, sslPolicyErrors, certificate?.Subject);
 
-            return true;
+            return true; // STAGE/DEV: Tillåt self-signed certs
         }
 
         public void Dispose()
